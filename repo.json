@@ -1,0 +1,16 @@
+{
+  "repository": [
+    {
+      "id": "Morphological",
+      "branch": "main",
+      "permissions": ["r", "w", "x"],
+      "state": "new"
+    },
+    {
+      "id": "xyz789",
+      "branch": "main",
+      "permissions": ["r"],
+      "state": "stale"
+    }
+  ]
+}
