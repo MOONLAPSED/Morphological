@@ -1,0 +1,74 @@
+name: python-app
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+  push:
+    branches: ["staging"]
+  pull_request:
+    branches: ["production"]
+
+jobs:
+  build-and-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create log directories
+        run: |
+          mkdir -p logs
+          touch logs/setup.log logs/python-app.log logs/app.log
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl chromium-chromedriver >> logs/setup.log 2>&1
+
+      - name: Set up virtual environment
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install selenium litellm setuptools wheel >> logs/setup.log 2>&1
+
+      - name: Validate repository instances
+        run: |
+          chmod +x scripts/validate_repo.sh
+          ./scripts/validate_repo.sh repo.json >> logs/python-app.log 2>&1
+
+      - name: Evolve instances over time
+        run: |
+          chmod +x scripts/evolve_instances.sh
+          ./scripts/evolve_instances.sh repo.json 3 >> logs/python-app.log 2>&1
+
+      - name: Run Git snapshot
+        run: |
+          chmod +x scripts/git_snapshot.sh
+          ./scripts/git_snapshot.sh >> logs/python-app.log 2>&1
+
+      - name: Python bridge with app_bridge.py
+        run: |
+          chmod +x scripts/python_bridge.sh
+          ./scripts/python_bridge.sh repo.json >> logs/python-app.log 2>&1
+
+      - name: Orchestrate full Git flow
+        run: |
+          chmod +x scripts/git.sh
+          ./scripts/git.sh repo.json >> logs/python-app.log 2>&1
+
+      - name: Archive CI logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: logs
