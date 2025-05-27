@@ -1,62 +1,83 @@
 @echo off
-:: Setup log file
-set LOGFILE=C:\Users\WDAGUtilityAccount\Desktop\sandbox_log.txt
-echo [%TIME%] Running provisioner.bat in Windows Sandbox... > "%LOGFILE%" 2>&1
+:: ─────────────────────────────────────────────────────────────────────────────
+:: provisioner.bat - Windows Sandbox Provisioner
+:: Sets up Scoop, configures environment, and logs everything to sandbox_log.txt
+:: ─────────────────────────────────────────────────────────────────────────────
 
-:: Set current directory to script location
-cd /d "%~dp0"
-echo [%TIME%] Current directory: %CD% >> "%LOGFILE%"
+setlocal enabledelayedexpansion
+pushd "%~dp0"
 
-:: Scoop environment variables
+set "LOGFILE=C:\Users\WDAGUtilityAccount\Desktop\sandbox_log.txt"
+echo [%TIME%] Starting provisioner.bat in Windows Sandbox... > "%LOGFILE%" 2>&1
+echo [%TIME%] Working directory: %CD% >> "%LOGFILE%"
+
 set "SANDBOX_USER=WDAGUtilityAccount"
-set "SCOOP=C:\Users\%SANDBOX_USER%\scoop"
-set "SCOOP_SHIMS=%SCOOP%\shims"
-echo [%TIME%] Using Scoop path: %SCOOP% >> "%LOGFILE%"
+set "SCOOP_ROOT=C:\Users\%SANDBOX_USER%\scoop"
+set "SCOOP_SHIMS=%SCOOP_ROOT%\shims"
+set "PATH=%SCOOP_SHIMS%;%PATH%"
 
-:: Add Scoop shims to PATH for this session
-set "PATH=%PATH%;%SCOOP_SHIMS%"
-echo [%TIME%] PATH after adding Scoop: %PATH% >> "%LOGFILE%"
+:: Check Internet connectivity
+echo [%TIME%] Checking internet connectivity... >> "%LOGFILE%"
+ping -n 1 github.com | findstr TTL >nul
+if %ERRORLEVEL% NEQ 0 (
+    echo [%TIME%] [ERROR] No internet connection. >> "%LOGFILE%"
+    timeout /t 10
+    popd
+    exit /b 1
+)
+echo [%TIME%] Internet connection OK >> "%LOGFILE%"
 
-:: Persist scoop shims into the user PATH (so any new process sees it)
-echo [%TIME%] Persisting scoop\shims into User PATH... >> "%LOGFILE%"
-setx PATH "%PATH%" >> "%LOGFILE%" 2>&1
-
-:: Check if Scoop is installed
+:: Try to detect Scoop
 where scoop >nul 2>&1
-IF %ERRORLEVEL% EQU 0 (
-    echo [%TIME%] Scoop is already installed. >> "%LOGFILE%"
-) ELSE (
-    echo [%TIME%] Scoop is not installed. Installing Scoop... >> "%LOGFILE%"
-
-    powershell.exe -ExecutionPolicy Bypass -NoProfile -Command ^
-        "$env:SCOOP='C:\Users\WDAGUtilityAccount\scoop'; [Environment]::SetEnvironmentVariable('SCOOP', $env:SCOOP, 'User'); iwr -useb get.scoop.sh | iex" >> "%LOGFILE%" 2>&1
-
-    timeout /t 5 >nul
-
-    where scoop >nul 2>&1
-    IF %ERRORLEVEL% EQU 0 (
-        echo [%TIME%] Scoop installed successfully. >> "%LOGFILE%"
-    ) ELSE (
-        echo [%TIME%] ERROR: Scoop installation failed. >> "%LOGFILE%"
-        exit /b 1
-    )
+if %ERRORLEVEL% EQU 0 (
+    echo [%TIME%] Scoop already installed. >> "%LOGFILE%"
+    goto SetupComplete
 )
 
-    echo [%TIME%] Success: Provisioning complete. >> "%LOGFILE%"
+:: Scoop not found – install it
+echo [%TIME%] Scoop not found, installing... >> "%LOGFILE%"
+powershell.exe -ExecutionPolicy Bypass -NoProfile -Command ^
+    "$env:SCOOP='%SCOOP_ROOT%'; [Environment]::SetEnvironmentVariable('SCOOP', $env:SCOOP, 'User'); iwr -useb get.scoop.sh | iex" >> "%LOGFILE%" 2>&1
 
-Start-Sleep -Seconds 20  # allow sandbox to fully initialize
+timeout /t 5 >nul
 
-:: --- Discover Host IP inside the Sandbox (via default gateway) ---
+:: Recheck Scoop
+where scoop >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [%TIME%] [ERROR] Scoop installation failed. >> "%LOGFILE%"
+    popd
+    exit /b 1
+)
+
+echo [%TIME%] Scoop installed successfully. >> "%LOGFILE%"
+
+:SetupComplete
+:: Persist environment
+echo [%TIME%] Persisting PATH to user env... >> "%LOGFILE%"
+setx PATH "%PATH%" >> "%LOGFILE%" 2>&1
+
+echo [%TIME%] Setting registry PATH (redundant safety)... >> "%LOGFILE%"
+reg add "HKCU\Environment" /f /v PATH /t REG_EXPAND_SZ /d "%PATH%" >> "%LOGFILE%" 2>&1
+
+:: Detect host IP (used for bridging in sandboxed net)
 for /f "tokens=3" %%a in ('route print ^| findstr /C:" 0.0.0.0"') do set HOST_IP=%%a
 echo [%TIME%] Detected host IP: %HOST_IP% >> "%LOGFILE%"
 
-:: --- Optional: test access to external API on host (e.g. localhost:9000 on host) ---
-echo [%TIME%] Testing connection to host API at http://%HOST_IP%:9000/ping >> "%LOGFILE%"
-curl.exe --silent --fail http://%HOST_IP%:9000/ping >> "%LOGFILE%" 2>&1
-if %ERRORLEVEL% EQU 0 (
-    echo [%TIME%] API ping successful. >> "%LOGFILE%"
-) else (
-    echo [%TIME%] WARNING: API ping failed (host might not be running it?) >> "%LOGFILE%"
-)
+:: Optional: Run invoke_setup.bat here if you want auto provisioning
+REM call "%~dp0invoke_setup.bat" >> "%LOGFILE%" 2>&1
 
+:: Switch to Desktop for usability
+cd /d "%USERPROFILE%\Desktop"
+echo [%TIME%] Switched to desktop directory. >> "%LOGFILE%"
+
+echo.
+echo === Provisioning Complete ===
+echo Log: %LOGFILE%
+echo Type 'cmd' to launch a shell here, or press any key to exit...
+pause >nul
+%SystemRoot%\System32\cmd.exe /K cd /d "%USERPROFILE%\Desktop"
+
+:: Final diagnostics
+popd
+echo [%TIME%] Final directory: %CD% >> "%LOGFILE%"
 exit /b 0
