@@ -44,4 +44,19 @@ IF %ERRORLEVEL% EQU 0 (
 
     echo [%TIME%] Success: Provisioning complete. >> "%LOGFILE%"
 
+Start-Sleep -Seconds 20  # allow sandbox to fully initialize
+
+:: --- Discover Host IP inside the Sandbox (via default gateway) ---
+for /f "tokens=3" %%a in ('route print ^| findstr /C:" 0.0.0.0"') do set HOST_IP=%%a
+echo [%TIME%] Detected host IP: %HOST_IP% >> "%LOGFILE%"
+
+:: --- Optional: test access to external API on host (e.g. localhost:9000 on host) ---
+echo [%TIME%] Testing connection to host API at http://%HOST_IP%:9000/ping >> "%LOGFILE%"
+curl.exe --silent --fail http://%HOST_IP%:9000/ping >> "%LOGFILE%" 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo [%TIME%] API ping successful. >> "%LOGFILE%"
+) else (
+    echo [%TIME%] WARNING: API ping failed (host might not be running it?) >> "%LOGFILE%"
+)
+
 exit /b 0
