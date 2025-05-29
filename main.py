@@ -1,23 +1,424 @@
-import sys
+from __future__ import annotations
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#------------------------------------------------------------------------------
+# Standard Library Imports - 3.13 std libs **ONLY**
+#------------------------------------------------------------------------------
 import os
+import io
 import re
+import sys
+import ast
+import dis
 import mmap
+import json
+import uuid
+import site
+import time
+import cmath
+import errno
+import shlex
+import signal
+import random
 import pickle
-import hashlib
+import ctypes
+import socket
+import struct
+import pstats
+import shutil
+import tomllib
+import decimal
+import pathlib
+import logging
 import inspect
-import importlib
+import asyncio
+import hashlib
+import argparse
+import cProfile
+import platform
+import tempfile
+import mimetypes
+import functools
+import linecache
 import traceback
 import threading
-from pathlib import Path
-from types import ModuleType
-from collections import OrderedDict, defaultdict, deque
-from concurrent.futures import ThreadPoolExecutor
-from functools import wraps
+import importlib
+import subprocess
+import tracemalloc
+import http.server
+from math import sqrt
+from io import StringIO
+from array import array
+from queue import Queue, Empty
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Dict, Generic, Iterator, List, Optional, Tuple, TypeVar, Union, cast, Callable, Set
-import math
-import random
+from enum import Enum, auto, StrEnum
+from collections import namedtuple, OrderedDict, defaultdict, deque
+from operator import mul
+from typing import (
+    Any, Dict, List, Optional, Union, Callable, TypeVar,
+    Tuple, Generic, Set, Coroutine, Type, NamedTuple,
+    ClassVar, Protocol, runtime_checkable, AsyncIterator, Iterator
+)
+from types import (
+    SimpleNamespace, ModuleType, MethodType,
+    FunctionType, CodeType, TracebackType, FrameType
+)
+from dataclasses import dataclass, field
+from functools import reduce, lru_cache, partial, wraps
+from collections.abc import Iterable, Mapping
+from datetime import datetime
+from pathlib import Path, PureWindowsPath
+from contextlib import contextmanager, asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
+from functools import reduce
+from importlib.util import spec_from_file_location, module_from_spec
+libc = None
+OLLAMA_DEFAULT_HOST = "127.0.0.1"
+OLLAMA_DEFAULT_PORT = 11434
+IS_WINDOWS = os.name == 'nt'
+IS_POSIX = os.name == 'posix'
+if IS_WINDOWS:
+    try:
+        from ctypes import windll
+        from ctypes import wintypes
+        from ctypes.wintypes import HANDLE, DWORD, LPWSTR, LPVOID, BOOL
+        from pathlib import PureWindowsPath
+        def set_process_priority(priority: int):
+            windll.kernel32.SetPriorityClass(wintypes.HANDLE(-1), priority)
+        libc = ctypes.windll.msvcrt
+        set_process_priority(1)
+    except ImportError:
+        print(f"{__file__} failed to import ctypes on platform: {os.name}")
+elif IS_POSIX:
+    try:
+        import resource
+        libc = ctypes.CDLL("libc.so.6")
+    except ImportError:
+        print(f"{__file__} failed to import ctypes on platform: {os.name}")
+class AsyncOllamaClient:
+    """
+    An asynchronous client for Ollama API using only Python's standard asyncio library.
+    """
+    def __init__(self, host: str = OLLAMA_DEFAULT_HOST, port: int = OLLAMA_DEFAULT_PORT):
+        self.host = host
+        self.port = port
+        self.logger = logging.getLogger(self.__class__.__name__)
+        if not logging.getLogger().hasHandlers():
+            logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+                                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    async def _send_http_request(self, method: str, api_path: str, payload: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        body_bytes = b""
+        if payload:
+            try:
+                body_str = json.dumps(payload)
+                body_bytes = body_str.encode('utf-8')
+            except TypeError as e:
+                self.logger.error(f"Payload serialization error: {e}")
+                return {"error": "Payload serialization error", "details": str(e)}
+        request_headers_list = [
+            f"{method.upper()} {api_path} HTTP/1.1",
+            f"Host: {self.host}:{self.port}",
+            "Connection: close", # Simplifies by not handling persistent connections
+            "Accept: application/json",
+            "User-Agent: PythonAsyncioStdlibClient/1.0"
+        ]
+        if payload:
+            request_headers_list.append("Content-Type: application/json; charset=utf-8")
+            request_headers_list.append(f"Content-Length: {len(body_bytes)}")
+        http_request_str = "\r\n".join(request_headers_list) + "\r\n\r\n"
+        http_request_bytes = http_request_str.encode('utf-8') + body_bytes
+        reader, writer = None, None
+        try:
+            self.logger.debug(f"Connecting to Ollama: {self.host}:{self.port}")
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port),
+                timeout=10.0 # Connection timeout
+            )
+            self.logger.debug(f"Sending request: {method.upper()} {api_path}")
+            writer.write(http_request_bytes)
+            await writer.drain()
+            status_line_bytes = await asyncio.wait_for(reader.readline(), timeout=10.0) # Response timeout
+            status_line = status_line_bytes.decode('utf-8').strip()
+            self.logger.debug(f"Ollama status: {status_line}")
+            version, status_code_str, *reason_parts = status_line.split(' ', 2)
+            status_code = int(status_code_str)
+            reason = reason_parts[0] if reason_parts else ""
+            response_headers = {}
+            content_length = 0
+            while True:
+                header_line_bytes = await asyncio.wait_for(reader.readline(), timeout=5.0)
+                header_line = header_line_bytes.decode('utf-8').strip()
+                if not header_line: break # End of headers
+                name, value = header_line.split(':', 1)
+                response_headers[name.strip().lower()] = value.strip()
+                if name.strip().lower() == 'content-length':
+                    content_length = int(value.strip())
+            self.logger.debug(f"Ollama response headers: {response_headers}")
+            response_body_bytes = b""
+            if content_length > 0:
+                response_body_bytes = await asyncio.wait_for(reader.readexactly(content_length), timeout=30.0) # Body read timeout
+            # Note: This doesn't handle chunked transfer encoding, Ollama usually sends Content-Length.
+            response_body_str = response_body_bytes.decode('utf-8')
+            self.logger.debug(f"Ollama response body (first 200 chars): {response_body_str[:200]}")
+            if not (200 <= status_code < 300):
+                self.logger.error(f"Ollama API error {status_code} {reason}: {response_body_str}")
+                return {"error": f"Ollama API Error {status_code}", "reason": reason, "details": response_body_str}
+            if not response_body_str.strip(): # Handle empty success bodies if any API does that
+                 return {"status_code": status_code, "message": "Success with empty body"}
+            try:
+                return json.loads(response_body_str)
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Ollama response JSON decode error: {e}. Body: {response_body_str}")
+                return {"error": "JSON decode error", "details": str(e), "body": response_body_str}
+        except asyncio.TimeoutError:
+            self.logger.error(f"Ollama request to {api_path} timed out.")
+            return {"error": "Request timed out"}
+        except ConnectionRefusedError:
+            self.logger.error(f"Ollama connection refused at {self.host}:{self.port}. Is Ollama running?")
+            return {"error": "Connection refused"}
+        except Exception as e:
+            self.logger.error(f"Ollama HTTP request to {api_path} failed: {e}", exc_info=True)
+            return {"error": "HTTP request failed", "details": str(e)}
+        finally:
+            if writer and not writer.is_closing():
+                try:
+                    writer.close()
+                    await writer.wait_closed()
+                except Exception as e_close:
+                    self.logger.error(f"Error closing Ollama connection: {e_close}")
+    async def generate_embedding(self, text: str, model: str = "nomic-embed-text") -> Optional[List[float]]:
+        self.logger.info(f"Requesting embedding from Ollama (model: {model}) for text: \"{text[:30]}...\"")
+        payload = {"model": model, "prompt": text}
+        response = await self._send_http_request("POST", "/api/embeddings", payload)
+        if response and "embedding" in response:
+            self.logger.info("Embedding received successfully.")
+            return response["embedding"]
+        self.logger.warning(f"Failed to get embedding from Ollama. Response: {response}")
+        return None
+    async def generate_response(self, prompt: str, model: str = "gemma2:latest", stream: bool = False) -> Optional[str]:
+        self.logger.info(f"Requesting response from Ollama (model: {model}, stream: {stream}) for prompt: \"{prompt[:30]}...\"")
+        # This stdlib client currently does not support true streaming for responses.
+        # It will make a non-streaming request if stream=True.
+        # Proper streaming would require iterative reading and yielding of JSON lines.
+        if stream:
+             self.logger.warning("Streaming is set to True, but this basic client will make a non-streaming request.")
+        payload = {"model": model, "prompt": prompt, "stream": False} # Force non-streaming for this client
+        response = await self._send_http_request("POST", "/api/generate", payload)
+        if response and "response" in response: # For non-streaming
+            self.logger.info("Response received successfully.")
+            return response["response"]
+        # If Ollama were to return an error structure like {"error": "message"}
+        if response and "error" in response and isinstance(response["error"], str):
+            self.logger.error(f"Ollama generation error: {response['error']}")
+            return f"Error from Ollama: {response['error']}"
+
+        self.logger.warning(f"Failed to get a valid response string from Ollama. Response: {response}")
+        return None
+# Helper to convert AST expression nodes (like type annotations or bases) to string
+def _get_ast_node_name(node: ast.expr) -> str:
+    """
+    Converts an AST expression node to its string representation.
+    Handles simple names, attributes (e.g., module.Class), and uses ast.unparse if available.
+    """
+    if hasattr(ast, 'unparse'): # ast.unparse is available in Python 3.9+
+        try:
+            return ast.unparse(node).strip()
+        except Exception: # Fallback if unparse fails for some specific nodes
+            pass
+    if isinstance(node, ast.Name):
+        return node.id
+    elif isinstance(node, ast.Attribute):
+        parts = []
+        curr = node
+        while isinstance(curr, ast.Attribute):
+            parts.append(curr.attr)
+            curr = curr.value
+        if isinstance(curr, ast.Name):
+            parts.append(curr.id)
+            return ".".join(reversed(parts))
+        else: # e.g. func().attr
+            return f"ComplexAttribute:{type(curr).__name__}.{node.attr}"
+    elif isinstance(node, ast.Subscript): # e.g. list[int], Dict[str, int]
+        value_str = _get_ast_node_name(node.value)
+        slice_str = _get_ast_node_name(node.slice)
+        return f"{value_str}[{slice_str}]"
+    elif isinstance(node, ast.Constant): # Python 3.8+ for simple constants like None, True, "string"
+        return str(node.value)
+    # Add more specific handlers if needed for other node types like ast.Tuple for Tuple[int, str]
+    return f"UnsupportedNodeType:{type(node).__name__}"
+class ClassInfo(NamedTuple):
+    name: str
+    docstring: Optional[str]
+    bases: List[str]
+    methods: List[str] # List of method names, could be expanded to FunctionInfo for methods
+class FunctionInfo(NamedTuple):
+    name: str
+    docstring: Optional[str]
+    return_type: Optional[str]
+    args: List[str] # List of argument names
+    rpn_callable: bool = False  # Domain-specific; implies more than just 'rpn'; it "works(last time we checked, or; according to the docs)": bool
+@dataclass
+class FileMetadata:
+    path: Path
+    mime_type: str
+    size: int
+    created: float
+    modified: float
+    hash: str
+    symlinks: List[Path] = field(default_factory=list)
+    content: Optional[str] = None
+    python_classes: Optional[List[ClassInfo]] = field(default=None, repr=False)
+    python_functions: Optional[List[FunctionInfo]] = field(default=None, repr=False)
+    parse_error: Optional[str] = field(default=None, repr=False)
+class ContentRegistry:
+    def __init__(self, root_dir: Path):
+        self.root_dir = root_dir
+        self.metadata: Dict[str, FileMetadata] = {}
+        self.modules: Dict[str, Any] = {}
+        self._init_mimetypes()
+    def _init_mimetypes(self):
+        mimetypes.add_type('text/markdown', '.md')
+        mimetypes.add_type('text/plain', '.txt')
+        # mimetypes.add_type('application/data', '.json')
+    def _compute_hash(self, path: Path) -> str:
+        hasher = hashlib.sha256()
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    def _load_text_content(self, path: Path) -> Optional[str]:
+        try:
+            return path.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            return None
+    def _parse_python_content(self, content: str, file_path: Path) -> Tuple[Optional[List[ClassInfo]], Optional[List[FunctionInfo]], Optional[str]]:
+        """
+        Parses Python code content and extracts class and function information.
+        Returns (class_infos, function_infos, error_message).
+        """
+        classes_found = []
+        functions_found = []
+        try:
+            tree = ast.parse(content, filename=str(file_path))
+            for node in tree.body: # Iterate over top-level nodes
+                if isinstance(node, ast.FunctionDef):
+                    docstring = ast.get_docstring(node, clean=False)
+                    arg_names = [arg.arg for arg in node.args.args]
+                    return_annotation_str = _get_ast_node_name(node.returns) if node.returns else None
+                    functions_found.append(FunctionInfo(
+                        name=node.name,
+                        docstring=docstring,
+                        return_type=return_annotation_str,
+                        args=arg_names,
+                        rpn_callable=False # Default, needs specific logic if rpn_callable is to be determined
+                    ))
+                elif isinstance(node, ast.ClassDef):
+                    docstring = ast.get_docstring(node, clean=False)
+                    base_names = [_get_ast_node_name(base_node) for base_node in node.bases]
+                    method_names = [item.name for item in node.body if isinstance(item, ast.FunctionDef)]
+                    classes_found.append(ClassInfo(
+                        name=node.name,
+                        docstring=docstring,
+                        bases=base_names,
+                        methods=method_names
+                    ))
+            return classes_found if classes_found else None, functions_found if functions_found else None, None
+        except SyntaxError as e:
+            return None, None, f"SyntaxError: {e.msg} at line {e.lineno}, offset {e.offset} in {file_path.name}"
+        except Exception as e:
+            return None, None, f"ASTParsingError: {str(e)} in {file_path.name}"
+    def register_file(self, path: Path) -> Optional[FileMetadata]:
+        if not path.is_file():
+            return None
+        stat = path.stat()
+        mime_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
+        symlinks_list = [p for p in path.parent.glob(f'*{path.name}*') if p.is_symlink()]
+        text_content = None
+        is_python_file = path.suffix == '.py' or \
+                         (mime_type and ('python' in mime_type or 'x-python' in mime_type))
+        if is_python_file or 'text' in mime_type:
+             text_content = self._load_text_content(path)
+        metadata = FileMetadata(
+            path=path, mime_type=mime_type, size=stat.st_size,
+            created=stat.st_ctime, modified=stat.st_mtime,
+            hash=self._compute_hash(path), symlinks=symlinks_list,
+            content=text_content
+        )
+        if is_python_file and metadata.content:
+            classes, functions, error_msg = self._parse_python_content(metadata.content, path)
+            metadata.python_classes = classes
+            metadata.python_functions = functions
+            metadata.parse_error = error_msg
+        # module_name = f"content_{rel_path.stem.replace('-', '_').replace('.', '_')}" # Sanitize module name
+        # Remove or comment out the dynamic module execution block:
+        # spec = importlib.util.spec_from_file_location(module_name, str(path))
+        # if spec and spec.loader:
+        #     try:
+        #         module = importlib.util.module_from_spec(spec)
+        #         # spec.loader.exec_module(module) # <-- DO NOT EXECUTE
+        #         # self.modules[module_name] = module 
+        #     except Exception as e:
+        #         print(f"Error creating module object from {path}: {e}")
+        rel_path = path.relative_to(self.root_dir)
+        self.metadata[str(rel_path)] = metadata
+        return metadata
+        rel_path = path.relative_to(self.root_dir)
+        self.metadata[str(rel_path)] = metadata
+        return metadata
+    def scan_directory(self):
+        for path in self.root_dir.rglob('*'):
+            if path.is_file():
+                self.register_file(path)
+    def export_metadata(self, output_path: Path):
+        metadata_dict = {}
+        for k, v in self.metadata.items():
+            item_data = {
+                'path': str(v.path),
+                'mime_type': v.mime_type,
+                'size': v.size,
+                'created': datetime.fromtimestamp(v.created).isoformat(),
+                'modified': datetime.fromtimestamp(v.modified).isoformat(),
+                'hash': v.hash,
+                'symlinks': [str(s) for s in v.symlinks],
+                'has_content': v.content is not None,
+                'parse_error': v.parse_error
+            }
+            # NamedTuples need to be converted to dicts for JSON serialization
+            if v.python_classes:
+                item_data['python_classes'] = [c._asdict() for c in v.python_classes]
+            else:
+                item_data['python_classes'] = None
+            if v.python_functions:
+                item_data['python_functions'] = [f._asdict() for f in v.python_functions]
+            else:
+                item_data['python_functions'] = None
+            metadata_dict[str(k)] = item_data
+        output_path.write_text(json.dumps(metadata_dict, indent=2, ensure_ascii=False))
+
+    def _parse_python_content(self, content: str, file_path: Path) -> Tuple[Optional[List[ClassInfo]], Optional[List[FunctionInfo]], Optional[str]]:
+        """
+        Parses Python code content and extracts class and function information.
+        Returns (class_infos, function_infos, error_message).
+        """
+        classes = []
+        functions = []
+        try:
+            tree = ast.parse(content, filename=str(file_path))
+            for node in tree.body: # Iterate over top-level nodes
+                if isinstance(node, ast.FunctionDef):
+                    functions.append(FunctionInfo(name=node.name))
+                elif isinstance(node, ast.ClassDef):
+                    base_names = [_get_ast_node_name(base_node) for base_node in node.bases]
+                    method_names = []
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            method_names.append(item.name)
+                    classes.append(ClassInfo(name=node.name, bases=base_names, methods=method_names))
+            return classes, functions, None
+        except SyntaxError as e:
+            return None, None, f"SyntaxError: {e.msg} at line {e.lineno}, offset {e.offset}"
+        except Exception as e:
+            return None, None, f"ASTParsingError: {str(e)}"
 
 T = TypeVar('T')
 V = TypeVar('V')
@@ -40,7 +441,9 @@ def hash_state(value: Any) -> int:
         return hash(str(value)) % 2**32
 
 class MorphicComplex:
-    """Represents a complex number with morphic properties."""
+    """Represents a complex number with morphic properties.
+        象迹 (xiàng jì) = 'Morpheme trace'
+    """
     def __init__(self, real: float, imag: float):
         self.real = real
         self.imag = imag
@@ -79,6 +482,286 @@ class MorphicComplex:
         if self.imag >= 0:
             return f"{self.real} + {self.imag}i"
         return f"{self.real} - {abs(self.imag)}i"
+
+class Matrix:
+    """Simple matrix implementation using standard Python"""
+    def __init__(self, data: List[List[Any]]):
+        if not data:
+            raise ValueError("Matrix data cannot be empty")
+        # Verify all rows have the same length
+        cols = len(data[0])
+        if any(len(row) != cols for row in data):
+            raise ValueError("All rows must have the same length")
+        
+        self.data = data
+        self.rows = len(data)
+        self.cols = cols
+    
+    def __getitem__(self, idx: Tuple[int, int]) -> Any:
+        i, j = idx
+        if not (0 <= i < self.rows and 0 <= j < self.cols):
+            raise IndexError(f"Matrix indices {i},{j} out of range")
+        return self.data[i][j]
+    
+    def __setitem__(self, idx: Tuple[int, int], value: Any) -> None:
+        i, j = idx
+        if not (0 <= i < self.rows and 0 <= j < self.cols):
+            raise IndexError(f"Matrix indices {i},{j} out of range")
+        self.data[i][j] = value
+    
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, Matrix):
+            return False
+        if self.rows != other.rows or self.cols != other.cols:
+            return False
+        return all(self.data[i][j] == other.data[i][j] 
+                  for i in range(self.rows) 
+                  for j in range(self.cols))
+    
+    def __matmul__(self, other: Union['Matrix', List[Any]]) -> Union['Matrix', List[Any]]:
+        """Matrix multiplication operator @"""
+        if isinstance(other, list):
+            # Matrix @ vector
+            if len(other) != self.cols:
+                raise ValueError(f"Dimensions don't match for matrix-vector multiplication: "
+                                f"matrix cols={self.cols}, vector length={len(other)}")
+            return [sum(self.data[i][j] * other[j] for j in range(self.cols)) 
+                    for i in range(self.rows)]
+        else:
+            # Matrix @ Matrix
+            if self.cols != other.rows:
+                raise ValueError(f"Dimensions don't match for matrix multiplication: "
+                                f"first matrix cols={self.cols}, second matrix rows={other.rows}")
+            result = [[sum(self.data[i][k] * other.data[k][j] 
+                          for k in range(self.cols))
+                      for j in range(other.cols)]
+                      for i in range(self.rows)]
+            return Matrix(result)
+    
+    def trace(self) -> Any:
+        """Calculate the trace of the matrix"""
+        if self.rows != self.cols:
+            raise ValueError("Trace is only defined for square matrices")
+        return sum(self.data[i][i] for i in range(self.rows))
+    
+    def transpose(self) -> 'Matrix':
+        """Return the transpose of this matrix"""
+        return Matrix([[self.data[j][i] for j in range(self.rows)] 
+                      for i in range(self.cols)])
+    
+    @staticmethod
+    def zeros(rows: int, cols: int) -> 'Matrix':
+        """Create a matrix of zeros"""
+        if rows <= 0 or cols <= 0:
+            raise ValueError("Matrix dimensions must be positive")
+        return Matrix([[0 for _ in range(cols)] for _ in range(rows)])
+    
+    @staticmethod
+    def identity(n: int) -> 'Matrix':
+        """Create an n×n identity matrix"""
+        if n <= 0:
+            raise ValueError("Matrix dimension must be positive")
+        return Matrix([[1 if i == j else 0 for j in range(n)] for i in range(n)])
+    
+    def __repr__(self) -> str:
+        return "\n".join([str(row) for row in self.data])
+
+@dataclass
+class MorphologicalBasis(Generic[T, V, C]):
+    """Defines a structured basis with symmetry evolution.
+        形态导数  (xíngtài dǎoshù)
+        形态 = morphology
+        导数 = derivative
+    """
+    type_structure: T  # Topological/Type representation
+    value_space: V     # State space (e.g., physical degrees of freedom)
+    compute_space: C   # Operator space (e.g., Lie Algebra of transformations)
+    
+    def evolve(self, generator: Matrix, time: float) -> 'MorphologicalBasis[T, V, C]':
+        """Evolves the basis using a symmetry generator over time."""
+        new_compute_space = self._transform_compute_space(generator, time)
+        return MorphologicalBasis(
+            self.type_structure, 
+            self.value_space, 
+            new_compute_space
+        )
+    
+    def _transform_compute_space(self, generator: Matrix, time: float) -> C:
+        """Transform the compute space using the generator"""
+        # This would depend on the specific implementation of C
+        # For demonstration, assuming C is a Matrix:
+        if isinstance(self.compute_space, Matrix) and isinstance(generator, Matrix):
+            # Simple time evolution using matrix exponential approximation
+            # exp(tA) ≈ I + tA + (tA)²/2! + ...
+            identity = Matrix.zeros(generator.rows, generator.cols)
+            for i in range(identity.rows):
+                identity.data[i][i] = 1
+                
+            scaled_gen = Matrix([[generator[i, j] * time for j in range(generator.cols)] 
+                               for i in range(generator.rows)])
+            
+            # First-order approximation: I + tA
+            result = identity
+            for i in range(result.rows):
+                for j in range(result.cols):
+                    result.data[i][j] += scaled_gen.data[i][j]
+                    
+            return cast(C, result @ self.compute_space)
+        
+        return self.compute_space  # Default fallback
+
+class Category(Generic[T_co, V_co, C_co]):
+    """
+    Represents a mathematical category with objects and morphisms.
+    态律 (tài lǜ) = 'Morphological law'
+    """
+    def __init__(self, name: str):
+        self.name = name
+        self.objects: List[T_co] = []
+        self.morphisms: Dict[Tuple[T_co, T_co], List[C_co]] = {}
+    
+    def add_object(self, obj: T_co) -> None:
+        """Add an object to the category."""
+        if obj not in self.objects:
+            self.objects.append(obj)
+    
+    def add_morphism(self, source: T_co, target: T_co, morphism: C_co) -> None:
+        """Add a morphism between objects."""
+        if source not in self.objects:
+            self.add_object(source)
+        if target not in self.objects:
+            self.add_object(target)
+            
+        key = (source, target)
+        if key not in self.morphisms:
+            self.morphisms[key] = []
+        self.morphisms[key].append(morphism)
+    
+    def compose(self, f: C_co, g: C_co) -> C_co:
+        """
+        Compose two morphisms.
+        For morphisms f: A → B and g: B → C, returns g ∘ f: A → C
+        """
+        def composed(x):
+            return g(f(x))
+        return cast(C_co, composed)
+
+    def find_morphisms(self, source: T_co, target: T_co) -> List[C_co]:
+        """Find all morphisms between two objects."""
+        return self.morphisms.get((source, target), [])
+    
+    def is_functor_to(self, target_category: 'Category', object_map: Dict[T_co, Any], morphism_map: Dict[C_co, Any]) -> bool:
+        """
+        Check if the given maps form a functor from this category to the target category.
+        A functor is a structure-preserving map between categories.
+        """
+        # Check that all objects are mapped
+        if not all(obj in object_map for obj in self.objects):
+            return False
+            
+        # Check that all morphisms are mapped
+        all_morphisms = [m for morphs in self.morphisms.values() for m in morphs]
+        if not all(m in morphism_map for m in all_morphisms):
+            return False
+            
+        # Check that the functor preserves composition
+        for src, tgt in self.morphisms:
+            for f in self.morphisms[(src, tgt)]:
+                for mid in self.objects:
+                    g_list = self.find_morphisms(tgt, mid)
+                    for g in g_list:
+                        # Check if g ∘ f maps to morphism_map[g] ∘ morphism_map[f]
+                        composed = self.compose(f, g)
+                        if composed not in morphism_map:
+                            return False
+                        
+                        # Check that the composition is preserved
+                        target_f = morphism_map[f]
+                        target_g = morphism_map[g]
+                        target_composed = target_category.compose(target_f, target_g)
+                        if morphism_map[composed] != target_composed:
+                            return False
+        return True
+
+class Morphism(Generic[T_co, T_anti]):
+    """Abstract morphism between type structures
+    """
+    
+    @abstractmethod
+    def apply(self, source: T_anti) -> T_co:
+        """Apply this morphism to transform source into target"""
+        pass
+    
+    def __call__(self, source: T_anti) -> T_co:
+        return self.apply(source)
+    
+    def compose(self, other: 'Morphism[U, T_co]') -> 'Morphism[U, T_anti]':
+        """Compose this morphism with another (this ∘ other)"""
+        # Type U is implied here
+        original_self = self
+        original_other = other
+        
+        class ComposedMorphism(Morphism[T_co, T_anti]):  # type: ignore
+            def apply(self, source: T_anti) -> T_co:
+                return original_self.apply(original_other.apply(source))
+                
+        return ComposedMorphism()
+
+class HermitianMorphism(Generic[T, V, C, T_anti, V_anti, C_anti]):
+    """
+    Represents a morphism with a Hermitian adjoint relationship between
+    covariant and contravariant types.
+    态衍 (tài yǎn) = 'Morphological derivation'
+        For composition rules
+    旋化 (xuán huà) = 'Spiral transformation'
+	    For non-associative evolution
+    """
+    def __init__(self, 
+                 forward: Callable[[T, V], C],
+                 adjoint: Callable[[T_anti, V_anti], C_anti]):
+        self.forward = forward
+        self.adjoint = adjoint
+        self.domain = None  # Will be set dynamically
+        self.codomain = None  # Will be set dynamically
+        
+    def apply(self, source: T, value: V) -> C:
+        """Apply the forward morphism"""
+        return self.forward(source, value)
+        
+    def apply_adjoint(self, source: T_anti, value: V_anti) -> C_anti:
+        """Apply the adjoint (contravariant) morphism"""
+        return self.adjoint(source, value)
+        
+    def get_adjoint(self) -> 'HermitianMorphism[V_anti, T_anti, C_anti, V, T, C]':
+        """
+        Create the Hermitian adjoint (contravariant dual) of this morphism.
+        The adjoint reverses the morphism direction and applies the conjugate operation.
+        """
+        return HermitianMorphism(self.adjoint, self.forward)
+    
+    def __call__(self, source: T, value: V) -> C:
+        """Make the morphism callable directly"""
+        return self.apply(source, value)
+
+
+# Define a MorphologicalBasis with simple matrices
+basis = MorphologicalBasis(
+    type_structure="TopologyA",
+    value_space=[1, 2, 3],    # Could be a vector or state list
+    compute_space=Matrix.identity(3)
+)
+
+# A generator matrix representing an infinitesimal symmetry
+generator = Matrix([
+    [0, -1, 0],
+    [1, 0, 0],
+    [0, 0, 0]
+])
+
+# Evolve the basis for time t=0.1
+new_basis = basis.evolve(generator, time=0.1)
+print(new_basis.compute_space)
+
 
 class Matrix:
     """Simple matrix implementation using standard Python"""
@@ -165,194 +848,6 @@ class Matrix:
         return "\n".join([str(row) for row in self.data])
 
 @dataclass
-class MorphologicalBasis(Generic[T, V, C]):
-    """Defines a structured basis with symmetry evolution."""
-    type_structure: T  # Topological/Type representation
-    value_space: V     # State space (e.g., physical degrees of freedom)
-    compute_space: C   # Operator space (e.g., Lie Algebra of transformations)
-    
-    def evolve(self, generator: Matrix, time: float) -> 'MorphologicalBasis[T, V, C]':
-        """Evolves the basis using a symmetry generator over time."""
-        new_compute_space = self._transform_compute_space(generator, time)
-        return MorphologicalBasis(
-            self.type_structure, 
-            self.value_space, 
-            new_compute_space
-        )
-    
-    def _transform_compute_space(self, generator: Matrix, time: float) -> C:
-        """Transform the compute space using the generator"""
-        # This would depend on the specific implementation of C
-        # For demonstration, assuming C is a Matrix:
-        if isinstance(self.compute_space, Matrix) and isinstance(generator, Matrix):
-            # Simple time evolution using matrix exponential approximation
-            # exp(tA) ≈ I + tA + (tA)²/2! + ...
-            identity = Matrix.zeros(generator.rows, generator.cols)
-            for i in range(identity.rows):
-                identity.data[i][i] = 1
-                
-            scaled_gen = Matrix([[generator[i, j] * time for j in range(generator.cols)] 
-                               for i in range(generator.rows)])
-            
-            # First-order approximation: I + tA
-            result = identity
-            for i in range(result.rows):
-                for j in range(result.cols):
-                    result.data[i][j] += scaled_gen.data[i][j]
-                    
-            return cast(C, result @ self.compute_space)
-        
-        return self.compute_space  # Default fallback
-
-class Category(Generic[T_co, V_co, C_co]):
-    """
-    Represents a mathematical category with objects and morphisms.
-    """
-    def __init__(self, name: str):
-        self.name = name
-        self.objects: List[T_co] = []
-        self.morphisms: Dict[Tuple[T_co, T_co], List[C_co]] = {}
-    
-    def add_object(self, obj: T_co) -> None:
-        """Add an object to the category."""
-        if obj not in self.objects:
-            self.objects.append(obj)
-    
-    def add_morphism(self, source: T_co, target: T_co, morphism: C_co) -> None:
-        """Add a morphism between objects."""
-        if source not in self.objects:
-            self.add_object(source)
-        if target not in self.objects:
-            self.add_object(target)
-            
-        key = (source, target)
-        if key not in self.morphisms:
-            self.morphisms[key] = []
-        self.morphisms[key].append(morphism)
-    
-    def compose(self, f: C_co, g: C_co) -> C_co:
-        """
-        Compose two morphisms.
-        For morphisms f: A → B and g: B → C, returns g ∘ f: A → C
-        """
-        def composed(x):
-            return g(f(x))
-        return cast(C_co, composed)
-
-    def find_morphisms(self, source: T_co, target: T_co) -> List[C_co]:
-        """Find all morphisms between two objects."""
-        return self.morphisms.get((source, target), [])
-    
-    def is_functor_to(self, target_category: 'Category', object_map: Dict[T_co, Any], morphism_map: Dict[C_co, Any]) -> bool:
-        """
-        Check if the given maps form a functor from this category to the target category.
-        A functor is a structure-preserving map between categories.
-        """
-        # Check that all objects are mapped
-        if not all(obj in object_map for obj in self.objects):
-            return False
-            
-        # Check that all morphisms are mapped
-        all_morphisms = [m for morphs in self.morphisms.values() for m in morphs]
-        if not all(m in morphism_map for m in all_morphisms):
-            return False
-            
-        # Check that the functor preserves composition
-        for src, tgt in self.morphisms:
-            for f in self.morphisms[(src, tgt)]:
-                for mid in self.objects:
-                    g_list = self.find_morphisms(tgt, mid)
-                    for g in g_list:
-                        # Check if g ∘ f maps to morphism_map[g] ∘ morphism_map[f]
-                        composed = self.compose(f, g)
-                        if composed not in morphism_map:
-                            return False
-                        
-                        # Check that the composition is preserved
-                        target_f = morphism_map[f]
-                        target_g = morphism_map[g]
-                        target_composed = target_category.compose(target_f, target_g)
-                        if morphism_map[composed] != target_composed:
-                            return False
-                            
-        return True
-
-class Morphism(Generic[T_co, T_anti]):
-    """Abstract morphism between type structures"""
-    
-    @abstractmethod
-    def apply(self, source: T_anti) -> T_co:
-        """Apply this morphism to transform source into target"""
-        pass
-    
-    def __call__(self, source: T_anti) -> T_co:
-        return self.apply(source)
-    
-    def compose(self, other: 'Morphism[U, T_co]') -> 'Morphism[U, T_anti]':
-        """Compose this morphism with another (this ∘ other)"""
-        # Type U is implied here
-        original_self = self
-        original_other = other
-        
-        class ComposedMorphism(Morphism[T_co, T_anti]):  # type: ignore
-            def apply(self, source: T_anti) -> T_co:
-                return original_self.apply(original_other.apply(source))
-                
-        return ComposedMorphism()
-
-class HermitianMorphism(Generic[T, V, C, T_anti, V_anti, C_anti]):
-    """
-    Represents a morphism with a Hermitian adjoint relationship between
-    covariant and contravariant types.
-    """
-    def __init__(self, 
-                 forward: Callable[[T, V], C],
-                 adjoint: Callable[[T_anti, V_anti], C_anti]):
-        self.forward = forward
-        self.adjoint = adjoint
-        self.domain = None  # Will be set dynamically
-        self.codomain = None  # Will be set dynamically
-        
-    def apply(self, source: T, value: V) -> C:
-        """Apply the forward morphism"""
-        return self.forward(source, value)
-        
-    def apply_adjoint(self, source: T_anti, value: V_anti) -> C_anti:
-        """Apply the adjoint (contravariant) morphism"""
-        return self.adjoint(source, value)
-        
-    def get_adjoint(self) -> 'HermitianMorphism[V_anti, T_anti, C_anti, V, T, C]':
-        """
-        Create the Hermitian adjoint (contravariant dual) of this morphism.
-        The adjoint reverses the morphism direction and applies the conjugate operation.
-        """
-        return HermitianMorphism(self.adjoint, self.forward)
-    
-    def __call__(self, source: T, value: V) -> C:
-        """Make the morphism callable directly"""
-        return self.apply(source, value)
-
-
-# Define a MorphologicalBasis with simple matrices
-basis = MorphologicalBasis(
-    type_structure="TopologyA",
-    value_space=[1, 2, 3],    # Could be a vector or state list
-    compute_space=Matrix.identity(3)
-)
-
-# A generator matrix representing an infinitesimal symmetry
-generator = Matrix([
-    [0, -1, 0],
-    [1, 0, 0],
-    [0, 0, 0]
-])
-
-# Evolve the basis for time t=0.1
-new_basis = basis.evolve(generator, time=0.1)
-print(new_basis.compute_space)
-
-
-@dataclass
 class TVCEntity(Generic[T, V, C], ABC):
     """
     Base class carrying:
@@ -377,7 +872,6 @@ class TVCEntity(Generic[T, V, C], ABC):
         Return a JSON-serializable view of (T, V, C).
         """
         ...
-
 # === Core Data Structures ===
 
 @dataclass(frozen=True)
@@ -1067,7 +1561,6 @@ if __name__ == "__main__":
     
     return base_template.format(module_name=module_name)
 
-
 # === Demo and Testing ===
 
 def demo_runtime_system():
@@ -1140,11 +1633,125 @@ def demo_runtime_system():
     runtime.shutdown()
     print("\n=== Demo Complete ===")
 
+async def app_kernel():
+    """
+    Main asynchronous function for the application.
+    Orchestrates file scanning, metadata processing, and Ollama interactions.
+    """
+    # Configure root logger for more comprehensive output during kernel execution
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    kernel_logger = logging.getLogger("AppKernel")
+    kernel_logger.info("🚀 Starting Application Kernel...")
 
-def main():
-    """Main entry point."""
-    demo_runtime_system()
+    # --- Content Registry Operations ---
+    kernel_logger.info("Initializing Content Registry...")
+    registry = ContentRegistry(Path.cwd()) # Scan current working directory
+    kernel_logger.info(f"Scanning directory: {registry.root_dir.resolve()}")
+    registry.scan_directory() # This is synchronous as per current ContentRegistry design
+    kernel_logger.info(f"Content registry scan complete. Found {len(registry.metadata)} items.")
+
+    output_metadata_path = registry.root_dir / "file_metadata_export.json"
+    kernel_logger.info(f"Exporting metadata to: {output_metadata_path}")
+    registry.export_metadata(output_metadata_path)
+    kernel_logger.info("Metadata exported successfully.")
+
+    # Example: Log AST info for the first Python file found
+    first_py_meta: Optional[FileMetadata] = next(
+        (meta for meta in registry.metadata.values() if meta.path.suffix == '.py' and (meta.python_classes or meta.python_functions)),
+        None
+    )
+    if first_py_meta:
+        kernel_logger.info(f"\n--- AST Details for: {first_py_meta.path.name} ---")
+        if first_py_meta.parse_error:
+            kernel_logger.warning(f"  Parse Error: {first_py_meta.parse_error}")
+        if first_py_meta.python_classes:
+            kernel_logger.info("  Classes:")
+            for cls_info in first_py_meta.python_classes:
+                bases = f"({', '.join(cls_info.bases)})" if cls_info.bases else ""
+                kernel_logger.info(f"    - {cls_info.name}{bases}: {len(cls_info.methods)} methods. Doc: {cls_info.docstring[:20] if cls_info.docstring else 'N/A'}...")
+        if first_py_meta.python_functions:
+            kernel_logger.info("  Functions:")
+            for func_info in first_py_meta.python_functions:
+                kernel_logger.info(f"    - {func_info.name}({', '.join(func_info.args)}) -> {func_info.return_type or 'Any'}. Doc: {func_info.docstring[:20] if func_info.docstring else 'N/A'}...")
+        kernel_logger.info("--- End AST Details ---")
+
+    # --- Ollama Client Operations ---
+    kernel_logger.info("\nInitializing Async Ollama Client...")
+    ollama_client = AsyncOllamaClient()
+
+    # Example: Generate an embedding
+    text_to_embed = "Exploring Python's asyncio capabilities."
+    kernel_logger.info(f"Requesting embedding for: \"{text_to_embed}\"")
+    embedding_vector = await ollama_client.generate_embedding(text_to_embed)
+    if embedding_vector:
+        kernel_logger.info(f"Received embedding vector (first 3 elements): {embedding_vector[:3]}...")
+    else:
+        kernel_logger.warning("Failed to generate embedding. Ensure Ollama is running and 'nomic-embed-text' model is available.")
+
+    # Example: Generate a response from Ollama
+    prompt_for_llm = "What are the benefits of using static typing in Python?"
+    kernel_logger.info(f"Requesting LLM response for: \"{prompt_for_llm}\"")
+    llm_text_response = await ollama_client.generate_response(prompt_for_llm)
+    if llm_text_response:
+        kernel_logger.info(f"LLM Response:\n{'-'*30}\n{llm_text_response}\n{'-'*30}")
+    else:
+        kernel_logger.warning("Failed to generate response. Ensure Ollama is running and 'gemma2:latest' model is available.")
+    if libc and hasattr(libc, 'printf'):
+        libc.printf(b"Message from C library via FFI (app_kernel)\n")
+
+    shell_command = "echo Hello from shell (app_kernel)"
+    kernel_logger.info(f"Executing shell command: '{shell_command}'")
+    try:
+        # subprocess.run is blocking. For truly async, use asyncio.create_subprocess_shell
+        # For simplicity here, keeping it blocking as it's a minor part.
+        shell_result = subprocess.run(shell_command, shell=True, capture_output=True, text=True, check=False)
+        kernel_logger.info(f"Shell command output: {shell_result.stdout.strip()}")
+    except Exception as e_shell:
+        kernel_logger.error(f"Shell command execution failed: {e_shell}")
+
+    kernel_logger.info("🏁 Application Kernel finished its tasks.")
 
 
 if __name__ == "__main__":
-    main()
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    demo_runtime_system()
+
+    # Global exception handler for asyncio tasks
+    def asyncio_exception_handler(loop, context):
+        logger = logging.getLogger("AsyncioGlobalHandler")
+        msg = context.get("exception", context["message"])
+        logger.error(f"Global unhandled asyncio exception: {msg}", exc_info=context.get("exception"))
+        # loop.stop() # Example: stop the loop on critical unhandled errors
+
+    loop = asyncio.new_event_loop() # Explicitly create a new event loop
+    asyncio.set_event_loop(loop)
+    loop.set_exception_handler(asyncio_exception_handler)
+
+    try:
+        loop.run_until_complete(app_kernel())
+    except KeyboardInterrupt:
+        logging.info("\nApplication interrupted by user. Shutting down...")
+    except Exception as e:
+        logging.critical(f"Critical unhandled error in main execution: {e}", exc_info=True)
+    finally:
+        # Cleanup asyncio tasks if any are still pending (more advanced)
+        # For simple scripts, just closing the loop might be enough.
+        # Ensure all tasks are given a chance to close gracefully.
+        all_tasks = asyncio.all_tasks(loop)
+        if all_tasks:
+            logging.info(f"Cancelling {len(all_tasks)} outstanding tasks...")
+            for task in all_tasks:
+                task.cancel()
+            try:
+                # Allow tasks to process cancellation
+                loop.run_until_complete(asyncio.gather(*all_tasks, return_exceptions=True))
+            except Exception as e_gather:
+                logging.error(f"Error during task gathering on shutdown: {e_gather}")
+
+        if hasattr(loop, "shutdown_asyncgens"): # Python 3.6+
+             loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
+        logging.info("Application shutdown complete.")
