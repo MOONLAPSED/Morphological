@@ -270,6 +270,102 @@ class FileMetadata:
     python_classes: Optional[List[ClassInfo]] = field(default=None, repr=False)
     python_functions: Optional[List[FunctionInfo]] = field(default=None, repr=False)
     parse_error: Optional[str] = field(default=None, repr=False)
+def rpn_call(func: Callable, *args):
+    """Execute a function in Reverse Polish Notation (args after function)."""
+    @wraps(func)
+    def wrapper(*positional_args):
+        return func(*reversed(positional_args))
+    return wrapper(*args)
+def compose(*funcs):
+    """Compose multiple functions, applying in reverse order."""
+    def composed_func(arg):
+        for func in reversed(funcs):
+            arg = func(arg)
+        return arg
+    return composed_func
+def identity(x):
+    """Identity function for functional programming patterns."""
+    return x
+def hash_state(value: Any) -> int:
+    """Hash a state value in a deterministic way"""
+    if isinstance(value, int):
+        return value * 2654435761 % 2**32  # Knuth's multiplicative hash
+    elif isinstance(value, str):
+        return sum(ord(c) * (31 ** i) for i, c in enumerate(value)) % 2**32
+    else:
+        return hash(str(value)) % 2**32
+class Matrix:
+    """Simple matrix implementation using standard Python"""
+    def __init__(self, data: List[List[Any]]):
+        if not data:
+            raise ValueError("Matrix data cannot be empty")
+        # Verify all rows have the same length
+        cols = len(data[0])
+        if any(len(row) != cols for row in data):
+            raise ValueError("All rows must have the same length")
+        self.data = data
+        self.rows = len(data)
+        self.cols = cols
+    def __getitem__(self, idx: Tuple[int, int]) -> Any:
+        i, j = idx
+        if not (0 <= i < self.rows and 0 <= j < self.cols):
+            raise IndexError(f"Matrix indices {i},{j} out of range")
+        return self.data[i][j]
+    def __setitem__(self, idx: Tuple[int, int], value: Any) -> None:
+        i, j = idx
+        if not (0 <= i < self.rows and 0 <= j < self.cols):
+            raise IndexError(f"Matrix indices {i},{j} out of range")
+        self.data[i][j] = value
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, Matrix):
+            return False
+        if self.rows != other.rows or self.cols != other.cols:
+            return False
+        return all(self.data[i][j] == other.data[i][j] 
+                  for i in range(self.rows) 
+                  for j in range(self.cols))
+    def __matmul__(self, other: Union['Matrix', List[Any]]) -> Union['Matrix', List[Any]]:
+        """Matrix multiplication operator @"""
+        if isinstance(other, list):
+            # Matrix @ vector
+            if len(other) != self.cols:
+                raise ValueError(f"Dimensions don't match for matrix-vector multiplication: "
+                                f"matrix cols={self.cols}, vector length={len(other)}")
+            return [sum(self.data[i][j] * other[j] for j in range(self.cols)) 
+                    for i in range(self.rows)]
+        else:
+            # Matrix @ Matrix
+            if self.cols != other.rows:
+                raise ValueError(f"Dimensions don't match for matrix multiplication: "
+                                f"first matrix cols={self.cols}, second matrix rows={other.rows}")
+            result = [[sum(self.data[i][k] * other.data[k][j] 
+                          for k in range(self.cols))
+                      for j in range(other.cols)]
+                      for i in range(self.rows)]
+            return Matrix(result)
+    def trace(self) -> Any:
+        """Calculate the trace of the matrix"""
+        if self.rows != self.cols:
+            raise ValueError("Trace is only defined for square matrices")
+        return sum(self.data[i][i] for i in range(self.rows))
+    def transpose(self) -> 'Matrix':
+        """Return the transpose of this matrix"""
+        return Matrix([[self.data[j][i] for j in range(self.rows)] 
+                      for i in range(self.cols)])
+    @staticmethod
+    def zeros(rows: int, cols: int) -> 'Matrix':
+        """Create a matrix of zeros"""
+        if rows <= 0 or cols <= 0:
+            raise ValueError("Matrix dimensions must be positive")
+        return Matrix([[0 for _ in range(cols)] for _ in range(rows)])
+    @staticmethod
+    def identity(n: int) -> 'Matrix':
+        """Create an n×n identity matrix"""
+        if n <= 0:
+            raise ValueError("Matrix dimension must be positive")
+        return Matrix([[1 if i == j else 0 for j in range(n)] for i in range(n)])
+    def __repr__(self) -> str:
+        return "\n".join([str(row) for row in self.data])
 class ContentRegistry:
     def __init__(self, root_dir: Path):
         self.root_dir = root_dir
@@ -431,15 +527,6 @@ V_anti = TypeVar('V_anti', contravariant=True)
 C_anti = TypeVar('C_anti', contravariant=True)
 U = TypeVar('U')  # For composition
 
-def hash_state(value: Any) -> int:
-    """Hash a state value in a deterministic way"""
-    if isinstance(value, int):
-        return value * 2654435761 % 2**32  # Knuth's multiplicative hash
-    elif isinstance(value, str):
-        return sum(ord(c) * (31 ** i) for i, c in enumerate(value)) % 2**32
-    else:
-        return hash(str(value)) % 2**32
-
 class MorphicComplex:
     """Represents a complex number with morphic properties.
         象迹 (xiàng jì) = 'Morpheme trace'
@@ -482,89 +569,6 @@ class MorphicComplex:
         if self.imag >= 0:
             return f"{self.real} + {self.imag}i"
         return f"{self.real} - {abs(self.imag)}i"
-
-class Matrix:
-    """Simple matrix implementation using standard Python"""
-    def __init__(self, data: List[List[Any]]):
-        if not data:
-            raise ValueError("Matrix data cannot be empty")
-        # Verify all rows have the same length
-        cols = len(data[0])
-        if any(len(row) != cols for row in data):
-            raise ValueError("All rows must have the same length")
-        
-        self.data = data
-        self.rows = len(data)
-        self.cols = cols
-    
-    def __getitem__(self, idx: Tuple[int, int]) -> Any:
-        i, j = idx
-        if not (0 <= i < self.rows and 0 <= j < self.cols):
-            raise IndexError(f"Matrix indices {i},{j} out of range")
-        return self.data[i][j]
-    
-    def __setitem__(self, idx: Tuple[int, int], value: Any) -> None:
-        i, j = idx
-        if not (0 <= i < self.rows and 0 <= j < self.cols):
-            raise IndexError(f"Matrix indices {i},{j} out of range")
-        self.data[i][j] = value
-    
-    def __eq__(self, other) -> bool:
-        if not isinstance(other, Matrix):
-            return False
-        if self.rows != other.rows or self.cols != other.cols:
-            return False
-        return all(self.data[i][j] == other.data[i][j] 
-                  for i in range(self.rows) 
-                  for j in range(self.cols))
-    
-    def __matmul__(self, other: Union['Matrix', List[Any]]) -> Union['Matrix', List[Any]]:
-        """Matrix multiplication operator @"""
-        if isinstance(other, list):
-            # Matrix @ vector
-            if len(other) != self.cols:
-                raise ValueError(f"Dimensions don't match for matrix-vector multiplication: "
-                                f"matrix cols={self.cols}, vector length={len(other)}")
-            return [sum(self.data[i][j] * other[j] for j in range(self.cols)) 
-                    for i in range(self.rows)]
-        else:
-            # Matrix @ Matrix
-            if self.cols != other.rows:
-                raise ValueError(f"Dimensions don't match for matrix multiplication: "
-                                f"first matrix cols={self.cols}, second matrix rows={other.rows}")
-            result = [[sum(self.data[i][k] * other.data[k][j] 
-                          for k in range(self.cols))
-                      for j in range(other.cols)]
-                      for i in range(self.rows)]
-            return Matrix(result)
-    
-    def trace(self) -> Any:
-        """Calculate the trace of the matrix"""
-        if self.rows != self.cols:
-            raise ValueError("Trace is only defined for square matrices")
-        return sum(self.data[i][i] for i in range(self.rows))
-    
-    def transpose(self) -> 'Matrix':
-        """Return the transpose of this matrix"""
-        return Matrix([[self.data[j][i] for j in range(self.rows)] 
-                      for i in range(self.cols)])
-    
-    @staticmethod
-    def zeros(rows: int, cols: int) -> 'Matrix':
-        """Create a matrix of zeros"""
-        if rows <= 0 or cols <= 0:
-            raise ValueError("Matrix dimensions must be positive")
-        return Matrix([[0 for _ in range(cols)] for _ in range(rows)])
-    
-    @staticmethod
-    def identity(n: int) -> 'Matrix':
-        """Create an n×n identity matrix"""
-        if n <= 0:
-            raise ValueError("Matrix dimension must be positive")
-        return Matrix([[1 if i == j else 0 for j in range(n)] for i in range(n)])
-    
-    def __repr__(self) -> str:
-        return "\n".join([str(row) for row in self.data])
 
 @dataclass
 class MorphologicalBasis(Generic[T, V, C]):
@@ -761,92 +765,6 @@ generator = Matrix([
 # Evolve the basis for time t=0.1
 new_basis = basis.evolve(generator, time=0.1)
 print(new_basis.compute_space)
-
-
-class Matrix:
-    """Simple matrix implementation using standard Python"""
-    def __init__(self, data: List[List[Any]]):
-        if not data:
-            raise ValueError("Matrix data cannot be empty")
-        
-        # Verify all rows have the same length
-        cols = len(data[0])
-        if any(len(row) != cols for row in data):
-            raise ValueError("All rows must have the same length")
-        
-        self.data = data
-        self.rows = len(data)
-        self.cols = cols
-    
-    def __getitem__(self, idx: Tuple[int, int]) -> Any:
-        i, j = idx
-        if not (0 <= i < self.rows and 0 <= j < self.cols):
-            raise IndexError(f"Matrix indices {i},{j} out of range")
-        return self.data[i][j]
-    
-    def __setitem__(self, idx: Tuple[int, int], value: Any) -> None:
-        i, j = idx
-        if not (0 <= i < self.rows and 0 <= j < self.cols):
-            raise IndexError(f"Matrix indices {i},{j} out of range")
-        self.data[i][j] = value
-    
-    def __eq__(self, other) -> bool:
-        if not isinstance(other, Matrix):
-            return False
-        if self.rows != other.rows or self.cols != other.cols:
-            return False
-        return all(self.data[i][j] == other.data[i][j] 
-                  for i in range(self.rows) 
-                  for j in range(self.cols))
-    
-    def __matmul__(self, other: Union['Matrix', List[Any]]) -> Union['Matrix', List[Any]]:
-        """Matrix multiplication operator @"""
-        if isinstance(other, list):
-            # Matrix @ vector
-            if len(other) != self.cols:
-                raise ValueError(f"Dimensions don't match for matrix-vector multiplication: "
-                                f"matrix cols={self.cols}, vector length={len(other)}")
-            return [sum(self.data[i][j] * other[j] for j in range(self.cols)) 
-                    for i in range(self.rows)]
-        else:
-            # Matrix @ Matrix
-            if self.cols != other.rows:
-                raise ValueError(f"Dimensions don't match for matrix multiplication: "
-                                f"first matrix cols={self.cols}, second matrix rows={other.rows}")
-            result = [[sum(self.data[i][k] * other.data[k][j] 
-                          for k in range(self.cols))
-                      for j in range(other.cols)]
-                      for i in range(self.rows)]
-            return Matrix(result)
-    
-    def trace(self) -> Any:
-        """Calculate the trace of the matrix"""
-        if self.rows != self.cols:
-            raise ValueError("Trace is only defined for square matrices")
-        return sum(self.data[i][i] for i in range(self.rows))
-    
-    def transpose(self) -> 'Matrix':
-        """Return the transpose of this matrix"""
-        return Matrix([[self.data[j][i] for j in range(self.rows)] 
-                      for i in range(self.cols)])
-    
-    @staticmethod
-    def zeros(rows: int, cols: int) -> 'Matrix':
-        """Create a matrix of zeros"""
-        if rows <= 0 or cols <= 0:
-            raise ValueError("Matrix dimensions must be positive")
-        return Matrix([[0 for _ in range(cols)] for _ in range(rows)])
-    
-    @staticmethod
-    def identity(n: int) -> 'Matrix':
-        """Create an n×n identity matrix"""
-        if n <= 0:
-            raise ValueError("Matrix dimension must be positive")
-        return Matrix([[1 if i == j else 0 for j in range(n)] for i in range(n)])
-    
-    def __repr__(self) -> str:
-        return "\n".join([str(row) for row in self.data])
-
 @dataclass
 class TVCEntity(Generic[T, V, C], ABC):
     """
@@ -872,8 +790,6 @@ class TVCEntity(Generic[T, V, C], ABC):
         Return a JSON-serializable view of (T, V, C).
         """
         ...
-# === Core Data Structures ===
-
 @dataclass(frozen=True)
 class ModuleMetadata:
     """Comprehensive metadata for module tracking and lazy loading."""
@@ -885,7 +801,6 @@ class ModuleMetadata:
     content_hash: str
     extension: str = ""
     created_time: float = 0.0
-    
     @classmethod
     def from_path(cls, path: Path, module_name: str = None) -> 'ModuleMetadata':
         """Create metadata from a file path."""
@@ -1073,9 +988,6 @@ class DynamicModuleFactory:
                 template_code = template_code.replace(f"{{{placeholder}}}", replacement)
         
         return DynamicModuleFactory.create_module(module_name, template_code, **kwargs)
-
-
-# === Introspection System ===
 
 class ModuleIntrospector:
     """Deep introspection utilities for modules and files."""
@@ -1300,6 +1212,25 @@ class ModuleIntrospector:
             }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # === Main Runtime System ===
 
 class ScalableReflectiveRuntime:
@@ -1484,31 +1415,6 @@ class ScalableReflectiveRuntime:
         self.save_index()
         self.executor.shutdown(wait=True)
         self.module_index.clear_cache()
-
-
-# === Utility Functions ===
-
-def rpn_call(func: Callable, *args):
-    """Execute a function in Reverse Polish Notation (args after function)."""
-    @wraps(func)
-    def wrapper(*positional_args):
-        return func(*reversed(positional_args))
-    return wrapper(*args)
-
-
-def compose(*funcs):
-    """Compose multiple functions, applying in reverse order."""
-    def composed_func(arg):
-        for func in reversed(funcs):
-            arg = func(arg)
-        return arg
-    return composed_func
-
-
-def identity(x):
-    """Identity function for functional programming patterns."""
-    return x
-
 
 def create_quine_module(module_name: str, base_template: str = None, fallback_filename: str = None) -> str:
     """
