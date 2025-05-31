@@ -1,25 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Python REPL</title>
-  <link rel="stylesheet" href="public/styles.css" />
-</head>
-
-<body>
-  <div class="container">
-    <h1>Repo Interaction Panel</h1>
-    <textarea id="repl-input" placeholder="Enter Python code here..."></textarea>
-    <textarea id="markdown-editor" placeholder="Enter Markdown text here..."></textarea>
-    <button id="execute">Execute</button>
-    <textarea id="repl-output" readonly></textarea>
-  </div>
-
-  <p>This is a plain-HTML GitHub Pages site. REPL input/output are spoofed.</p>
-
-  <script src="public/scripts/scripts.js"></script>
-</body>
-
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Morphological IDE</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/tsx/main.tsx"></script>
+  </body>
 </html>
