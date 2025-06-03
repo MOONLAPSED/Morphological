@@ -138,12 +138,35 @@ class LandauMorphologicalSystem:
             new_value = random.randint(0, 255)
             new_word = ToroidalByteWord(new_value)
             
-            # Calculate energy change
-            old_energy = self.morphological_energy()
-            self.words[idx] = new_word
-            new_energy = self.morphological_energy()
+            # Calculate energy change locally
+            # Compute old interaction energy contribution of old_word
+            old_interaction_energy = 0.0
+            for j, other_word in enumerate(self.words):
+                if j != idx:
+                    fs = old_word.field_strength(other_word)
+                    if fs > 0.1:
+                        old_interaction_energy += -self.coupling_strength * fs
             
-            delta_E = new_energy - old_energy
+            # Compute new interaction energy contribution of new_word
+            new_interaction_energy = 0.0
+            for j, other_word in enumerate(self.words):
+                if j != idx:
+                    fs = new_word.field_strength(other_word)
+                    if fs > 0.1:
+                        new_interaction_energy += -self.coupling_strength * fs
+            
+            # Compute old and new order parameters
+            old_psi = self.order_parameter()
+            # Temporarily replace word to compute new psi
+            self.words[idx] = new_word
+            new_psi = self.order_parameter()
+            
+            # Compute Landau free energy difference
+            old_landau_energy = self.landau_free_energy(old_psi)
+            new_landau_energy = self.landau_free_energy(new_psi)
+            
+            # Total delta energy
+            delta_E = (new_landau_energy + new_interaction_energy) - (old_landau_energy + old_interaction_energy)
             
             # Metropolis acceptance criterion
             if delta_E > 0 and random.random() > math.exp(-delta_E / self.temperature):
