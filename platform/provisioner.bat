@@ -63,8 +63,14 @@ reg add "HKCU\Environment" /f /v PATH /t REG_EXPAND_SZ /d "%PATH%" >> "%LOGFILE%
 for /f "tokens=3" %%a in ('route print ^| findstr /C:" 0.0.0.0"') do set HOST_IP=%%a
 echo [%TIME%] Detected host IP: %HOST_IP% >> "%LOGFILE%"
 
-:: Optional: Run invoke_setup.bat here if you want auto provisioning
-REM call "%~dp0invoke_setup.bat" >> "%LOGFILE%" 2>&1
+echo [%TIME%] Calling invoke_setup.bat... >> "%LOGFILE%"
+call "%~dp0invoke_setup.bat" >> "%LOGFILE%" 2>&1
+if errorlevel 1 (
+  echo [%TIME%] [ERROR] invoke_setup.bat failed. >> "%LOGFILE%"
+  popd
+  exit /b 1
+)
+echo [%TIME%] invoke_setup.bat completed. >> "%LOGFILE%"
 
 :: Switch to Desktop for usability
 cd /d "%USERPROFILE%\Desktop"
