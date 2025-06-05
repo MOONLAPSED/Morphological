@@ -1,0 +1,21 @@
+﻿<Configuration>
+    <vGPU>Enable</vGPU>
+    <Networking>Default</Networking>
+    <AudioInput>Enable</AudioInput>
+    <VideoInput>Disable</VideoInput>
+    <PrinterRedirection>Disable</PrinterRedirection>
+    <ClipboardRedirection>Default</ClipboardRedirection>
+    <ProtectedClient>Disable</ProtectedClient>
+    <MemoryInMB>8192</MemoryInMB>
+    <MappedFolders>
+        <MappedFolder>
+            <HostFolder>C:\Users\DEV\Documents\morphological\</HostFolder>
+            <SandboxFolder>C:\Users\WDAGUtilityAccount\Desktop\morphological</SandboxFolder>
+            <ReadOnly>false</ReadOnly>
+        </MappedFolder>
+    </MappedFolders>
+    <LogonCommand>
+        <Command>cmd.exe /c start /wait "" "C:\Users\WDAGUtilityAccount\Desktop\morphological\platform\provisioner.bat"</Command>
+    </LogonCommand>
+</Configuration>
+
