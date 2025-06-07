@@ -119,12 +119,10 @@ class ByteWord:
         self_freq = self.cook_merz_transform()
         other_freq = other.cook_merz_transform()
         
-        # XOR in frequency domain (component-wise multiplication)
+        # XOR in frequency domain (component-wise complex multiplication)
         result_freq = []
         for s, o in zip(self_freq, other_freq):
-            # XOR as complex multiplication in {0,1} field
-            xor_real = (s.real * o.real) % 2.0
-            result_freq.append(ComplexNumber(xor_real, 0.0))
+            result_freq.append(s * o)
         
         # Inverse transform back to time domain
         result_time = fast_fourier_transform(result_freq, inverse=True)
