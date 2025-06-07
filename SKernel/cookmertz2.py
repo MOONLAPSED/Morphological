@@ -115,21 +115,11 @@ class ByteWord:
     
     def flat_abelianize(self, other: 'ByteWord') -> 'ByteWord':
         """Flat (binary) Abelianization using XOR in frequency domain"""
-        # Transform both to frequency domain
-        self_freq = self.cook_merz_transform()
-        other_freq = other.cook_merz_transform()
-        
-        # XOR in frequency domain (component-wise complex multiplication)
-        result_freq = []
-        for s, o in zip(self_freq, other_freq):
-            result_freq.append(s * o)
-        
-        # Inverse transform back to time domain
-        result_time = fast_fourier_transform(result_freq, inverse=True)
-        
-        # Convert back to binary and create ByteWord
-        binary_result = [int(round(c.real)) % 2 for c in result_time]
-        return self.from_binary_sequence(binary_result)
+        # Perform XOR directly in time domain binary sequences
+        self_bits = self.to_binary_sequence()
+        other_bits = other.to_binary_sequence()
+        xor_bits = [ (a ^ b) for a, b in zip(self_bits, other_bits) ]
+        return self.from_binary_sequence(xor_bits)
     
     def morphological_resonance(self, other: 'ByteWord') -> float:
         """Measure morphological resonance using Cook & Merz coefficients"""
@@ -272,9 +262,11 @@ def demonstrate_cook_merz_bytewords():
     # Morphological composition (flat Abelianization)
     print("Flat Abelianization (Binary XOR in Frequency Domain):")
     composition = psi1.compose(psi2)
+    direct_xor = psi1 ^ psi2
+    match = composition.value == direct_xor.value
     print(f"ψ₁ ∘ ψ₂ = {composition}")
-    print(f"Direct XOR: {psi1 ^ psi2}")
-    print(f"Match: {composition.value == (psi1 ^ psi2).value}\n")
+    print(f"Direct XOR: {direct_xor}")
+    print(f"Match: {match}\n")
     
     # Morphological resonance
     print("Morphological Resonance:")
@@ -292,6 +284,45 @@ def demonstrate_cook_merz_bytewords():
     for i, state in enumerate(evolution):
         entropy = state.morphological_entropy()
         print(f"Step {i}: {state} (entropy: {entropy:.3f})")
+    
+    # Inject rigorous tests inline
+    print("\nRunning inline rigorous tests...")
+    errors = 0
+    
+    # Test 1: Composition matches direct XOR
+    if not match:
+        print("Test 1 Failed: Composition does not match direct XOR")
+        errors += 1
+    
+    # Test 2: Resonance symmetry
+    if abs(resonance12 - psi2.morphological_resonance(psi1)) > 1e-10:
+        print("Test 2 Failed: Resonance is not symmetric")
+        errors += 1
+    
+    # Test 3: Propagation length
+    if len(evolution) != 5:
+        print("Test 3 Failed: Propagation length incorrect")
+        errors += 1
+    
+    # Test 4: Entropy non-negative
+    for i, state in enumerate(evolution):
+        ent = state.morphological_entropy()
+        if ent < 0:
+            print(f"Test 4 Failed: Negative entropy at step {i}")
+            errors += 1
+    
+    # Test 5: Equality and XOR consistency
+    if not (psi1 == ByteWord(0b10101010)):
+        print("Test 5 Failed: Equality operator failed")
+        errors += 1
+    if not (psi1 ^ psi2) == ByteWord(psi1.value ^ psi2.value):
+        print("Test 6 Failed: XOR operator failed")
+        errors += 1
+    
+    if errors == 0:
+        print("All inline tests passed successfully!")
+    else:
+        print(f"{errors} inline tests failed.")
     
     print("\n" + "="*60)
     print("The morphological field speaks through Cook & Merz roots of unity!")

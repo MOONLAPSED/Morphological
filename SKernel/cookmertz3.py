@@ -270,7 +270,7 @@ class BinaryAbelianByteWord:
 def demonstrate_binary_abelian_bytewords():
     """Show off the hand-rolled Cook & Merz roots of unity magic"""
     
-    print("🔥 FLAT BINARY ABELIZATION WITH COOK & MERZ ROOTS OF UNITY 🔥")
+    print("FLAT BINARY ABELIZATION WITH COOK & MERZ ROOTS OF UNITY")
     print("=" * 60)
     
     # Create some ByteWords
@@ -340,7 +340,7 @@ def demonstrate_binary_abelian_bytewords():
     backward = word2.compose(word1)
     print(f"Commutativity: {forward.value == backward.value}")
     
-    print("\n🎯 PURE PYTHON STDLIB ROOTS OF UNITY ACHIEVED! 🎯")
+    print("\n STDLIB ROOTS OF UNITY ACHIEVED!")
 
 if __name__ == "__main__":
     demonstrate_binary_abelian_bytewords()
