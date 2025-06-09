@@ -391,17 +391,23 @@ async def bootstrap_ontogenesis(seed_text: str):
         # debugging block:
         for k,v in quine.namespace.items():
             logger.debug("quine.namespace[%r] = %r (%s)", k, v, type(v))
-        atom = quine.namespace["int_adder"]
-        if not isinstance(atom, TripartiteAtom):
+        # Assign int_res before logging
+        atom = quine.namespace.get("int_adder")
+        if atom is None or not isinstance(atom, TripartiteAtom):
             raise RuntimeError(f"Expected TripartiteAtom, got {type(atom)} for key 'int_adder'")
         int_res = atom(42)
         logger.info("int_adder result: %s", int_res.V)
         # end debugging block
+        core = quine.namespace.setdefault("core", {})
+        core["int_adder"] = TripartiteAtom(int, 0, lambda v, x: v + x)
+        atom = quine.namespace["core"]["int_adder"]
+        if not isinstance(atom, TripartiteAtom):
+            raise RuntimeError(f"Expected TripartiteAtom, got {type(atom)} for key 'int_adder'")
+        int_res = atom(42)
         # 6a) Apply each transformation once
         for t in transforms:
             quine.apply_transformation(t)
             logger.info(f"Applied transform {t.symmetry}/{t.conservation}")
-
         # 6b) Demonstrate atom calls & semantic RGB
         int_res = quine.namespace["int_adder"](42)
         greet_res = quine.namespace["greet"](" from quine!")
