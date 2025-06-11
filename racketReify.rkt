@@ -5,10 +5,10 @@
 ;; Ollama client (blocking, no external deps but Racket stdlib)
 ;; ——————————————————————————————————————————————————————————
 (require net/http-client
+         racket/string
          net/url
          json
          racket/cmdline
-         racket/string
          file/convertible)
 
 (struct ollama-client (host port) #:transparent)
@@ -34,10 +34,9 @@
   (close-input-port in) (close-output-port out)
 
   ;; Split headers/body crudely at first empty line
-  (define delimiter (string-contains resp "\r\n\r\n"))
+  (define delimiter (string-contains? resp "\r\n\r\n"))
   (unless delimiter (error "No HTTP body in response"))
   (define body (substring resp (+ delimiter 4)))
-  (string->jsexpr body))
 
 (define (ollama-generate client prompt #:model [model "gemma2:latest"])
   (define resp
@@ -80,21 +79,26 @@
 ;; ——————————————————————————————————————————————————————————
 ;; CLI — call Ollama, overwrite file, announce result
 ;; ——————————————————————————————————————————————————————————
-(define-values (model script-path)
+(define-values (raw-model maybe-path)
   (command-line
-   #:program "quine-engine.rkt"
-   #:once-each [("-m" "--model") m "Ollama model" (string->symbol m)]
+   #:program "racketReify.rkt"
+   #:once-each [("-m" "--model") raw-model "Ollama model" "gemma2:latest"]
    #:args [maybe-path]
-   (values (or m "gemma2:latest")
-           (if (null? maybe-path) (self-path) (car maybe-path)))))
+   (values "gemma2:latest" '()))) ; defaults if nothing at all
+
+(define model       (string->symbol raw-model))
+(define script-path (if (null? maybe-path) (self-path) (car maybe-path)))
 
 (define current-code (slurp script-path))
 (define prompt (make-prompt current-code))
 (define new-code (ollama-generate default-client prompt #:model model))
+(define (string-blank? s)
+  (regexp-match? #px"^\\s*$" s))
 
 (if (string-blank? new-code)
     (begin
-      (displayln "⚠️  Ollama returned empty text — no update performed."))
+      (displayln "Ollama returned empty text — no update performed."))
     (begin
       (spit script-path new-code)
-      (displayln "✅  Script updated successfully by Ollama!")))
+      (displayln "Script updated successfully by Ollama!")))
+)
