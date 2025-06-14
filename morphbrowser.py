@@ -86,7 +86,7 @@ class MorphologicalMemory:
     def __init__(self, size: int = 65536):
         self.size = size
         self.memory: List[Optional[ByteWord]] = [None] * size
-        self.semantic_clusters: Dict[int, List[int]] = defaultdict(list)
+        self.semantic_clusters: Dict[int, List[int]] = defaultdict(set)
         self.quantum_entanglements: Dict[int, List[int]] = defaultdict(list)
         
     def store(self, address: int, word: ByteWord):
@@ -95,7 +95,8 @@ class MorphologicalMemory:
             raise ValueError(f"Address {address} out of bounds")
             
         self.memory[address] = word
-        
+        # Clear old clusters for this morphism, then rebuild
+        self.semantic_clusters[word.morphism].add(address)
         # Cluster semantically similar words
         for addr, existing in enumerate(self.memory):
             if existing and addr != address:
@@ -103,7 +104,7 @@ class MorphologicalMemory:
                 if abs(word.morphism - existing.morphism) <= 1:
                     self.semantic_clusters[word.morphism].append(address)
                     self.semantic_clusters[existing.morphism].append(addr)
-                    
+
         # Track quantum entanglements
         if word._entangled_refs:
             self.quantum_entanglements[address] = list(word._entangled_refs)

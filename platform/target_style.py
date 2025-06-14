@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic, Callable, Dict, Any, Optional, Set, Union, Awaitable, cast, Protocol, Tuple, List
+from typing import TypeVar, Generic, Callable, Dict, Any, Optional, Set, Union, Awaitable, cast, Protocol, Tuple, List, Generator
 from enum import Enum, auto, StrEnum
 from abc import ABC, abstractmethod
 import asyncio
@@ -18,6 +18,47 @@ import uuid
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import random
+
+
+T = TypeVar('T')
+V = TypeVar('V')
+C = TypeVar('C')
+
+class Oracle(Generic[T, V]):
+    """
+    An oracle is a generator that accepts quinic input and remembers only the first input,
+    applying the same transformation to all subsequent inputs.
+    """
+    def __init__(self, transform_function):
+        self.transform_function = transform_function
+        self.first_input = None
+        self.first_output = None
+        self.initialized = False
+        
+    def __call__(self, input_value: T) -> Generator[V, None, None]:
+        """Makes the oracle callable, returning a generator"""
+        return self._oracle_generator(input_value)
+        
+    def _oracle_generator(self, input_value: T) -> Generator[V, None, None]:
+        """The actual generator implementing oracle behavior"""
+        # On first call, remember input and compute output
+        if not self.initialized:
+            self.first_input = input_value
+            self.first_output = self.transform_function(input_value)
+            self.initialized = True
+            yield self.first_output
+        else:
+            # For subsequent calls, yield a transformation that's consistent with first call
+            # but may use aspects of the new input
+            result = self.transform_function(self.first_input)
+            # Could implement variation based on input_value here if needed
+            yield result
+            
+    def reset(self) -> None:
+        """Reset the oracle to accept a new first input"""
+        self.initialized = False
+        self.first_input = None
+        self.first_output = None
 
 # Covariant type variables for quantum state typing
 ψ_co = TypeVar('ψ_co', covariant=True)  # Quantum state type
