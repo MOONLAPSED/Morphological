@@ -59,7 +59,47 @@ class Oracle(Generic[T, V]):
         self.initialized = False
         self.first_input = None
         self.first_output = None
+@dataclass
+class Morphism(Generic[T, V, C, T_anti, V_anti, C_anti]):
+    """Represents a morphism with its adjoint counterpart"""
+    source: T
+    target: T
+    control: C
+    
+    def apply(self, value: V) -> V:
+        """Apply this morphism to a value"""
+        # Implementation depends on specific morphism type
+        raise NotImplementedError
+    
+    def adjoint(self) -> 'Morphism[T_anti, V_anti, C_anti, T, V, C]':
+        """Return the adjoint (contravariant) version of this morphism"""
+        # Implementation depends on specific morphism type
+        raise NotImplementedError
 
+class OracleGenerator(Generic[T, V, C]):
+    """A generator-based oracle that maintains state between calls"""
+    
+    def __init__(self, initial_state: T):
+        self.state = initial_state
+        self.first_input = None
+    
+    def oracle(self) -> Generator[V, Tuple[Morphism, V], None]:
+        """
+        Generator that applies morphisms to values.
+        - yield: Outputs the current value
+        - send: Receives (morphism, value) tuple to apply
+        - First input is remembered and used as a template for subsequent calls
+        """
+        while True:
+            morphism, value = yield self.state
+            
+            if self.first_input is None:
+                self.first_input = (morphism, value)
+                # Apply the actual input
+                self.state = morphism.apply(value)
+            else:
+                # Apply a copy of the first morphism to maintain quine-like behavior
+                self.state = self.first_input[0].apply(value)
 # Covariant type variables for quantum state typing
 ψ_co = TypeVar('ψ_co', covariant=True)  # Quantum state type
 Ω_co = TypeVar('Ω_co', covariant=True)  # Observable type
