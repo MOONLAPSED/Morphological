@@ -21,8 +21,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 import re
 
-# Import your morphic classes (assuming they're in the same directory)
-from paste import BYTE, QuantumState, HilbertSpace, MorphicComplex, least_significant_unit, WordSize
+from . import BYTE, QuantumState, HilbertSpace, MorphicComplex, least_significant_unit, WordSize
 
 @dataclass
 class DocumentState:
