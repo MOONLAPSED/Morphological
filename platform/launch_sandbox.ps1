@@ -1,6 +1,6 @@
 # launch_sandbox.ps1
 
-Write-Host "Initializing Sandbox Launcher (Version: ABSOLUTE_FINAL_ATTEMPT_NOV_27_A)..."
+Write-Host "Initializing Sandbox Launcher"
 
 # --- Determine the Host Folder Path using Git ---
 $HostFolderPath = $null
