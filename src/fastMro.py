@@ -71,14 +71,13 @@ IS_WINDOWS = os.name == 'nt'
 IS_POSIX = os.name == 'posix'
 logger = logging.getLogger("lognosis")
 logger.setLevel(logging.DEBUG)
-# Define a custom formatter
 class CustomFormatter(Formatter):
     def format(self, record):
         timestamp = datetime.datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
         level = f"{record.levelname:<8}"
         message = record.getMessage()
         source = f"({record.filename}:{record.lineno})"
-        # Color codes for terminal output (if needed)
+        # ANSI Color codes for terminal output
         color_map = {
             'INFO': "\033[32m",     # Green
             'WARNING': "\033[33m",  # Yellow
