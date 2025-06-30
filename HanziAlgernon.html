@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ByteWord Chinese Hyperpalace - Morphological Cryptography</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .title {
+            font-size: 24px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            font-size: 14px;
+            margin-bottom: 20px;
+            text-align: center;
+            color: #0ff;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .fps-counter {
+            margin-right: 20px;
+            color: #0ff;
+        }
+        
+        #gameCanvas {
+            border: 2px solid #0f0;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+        
+        .info {
+            margin-top: 20px;
+            max-width: 800px;
+            text-align: center;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        
+        .colored-text { color: #0ff; }
+        .gray-text { color: #888; }
+        .chinese-text { color: #ff0; font-size: 14px; }
+        
+        .bytecode-display {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid #0f0;
+            font-size: 11px;
+        }
+        
+        .frame-buffer {
+            display: inline-block;
+            margin: 5px;
+            padding: 3px;
+            border: 1px solid #333;
+            font-size: 10px;
+        }
+        
+        .character-display {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 0, 0.1);
+            border: 1px solid #ff0;
+            font-size: 14px;
+            min-height: 100px;
+        }
+        
+        .hanzi {
+            font-size: 36px;
+            color: #ff0;
+            margin-right: 20px;
+        }
+        
+        .pinyin {
+            color: #0ff;
+            font-size: 18px;
+        }
+        
+        .meaning {
+            color: #fff;
+            margin-top: 5px;
+        }
+        
+        .cryptographic-status {
+            color: #f0f;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">ByteWord Chinese Hyperpalace</div>
+    <div class="subtitle">Morphological Cryptography & Cantorian Security</div>
+    
+    <div class="controls">
+        <span class="fps-counter" id="fpsDisplay">FPS: 0</span>
+        <span>Use WASD or Arrow Keys to navigate | Click walls to inspect</span>
+    </div>
+    
+    <canvas id="gameCanvas" width="640" height="480"></canvas>
+    
+    <div class="character-display">
+        <div>Current Wall Character:</div>
+        <div id="characterInfo">Navigate to a wall to see character information...</div>
+    </div>
+    
+    <div class="bytecode-display">
+        <div>Morphological Cryptography Status:</div>
+        <div id="frameBuffer32">32-bit Frame Buffer: </div>
+        <div id="frameBuffer64">64-bit Frame Buffer: </div>
+        <div>Runtime State: <span id="gameStateHex"></span></div>
+        <div>Cardinality: <span id="cardinalityState"></span></div>
+        <div>Security Status: <span id="securityStatus"></span></div>
+    </div>
+    
+    <div class="info">
+        <p><strong>MORPHOLOGICAL CRYPTOGRAPHY - CHINESE HYPERPALACE:</strong></p>
+        <p>• <span class="chinese-text">Living Walls</span> (C≠0__C__≠0): Display Chinese characters with linguistic data</p>
+        <p>• <span class="gray-text">Dead Walls</span> (C=0__C__=0): Encrypted/compressed character data</p>
+        <p>• <span class="colored-text">Runtime Authentication</span>: Morphological composition provides decryption keys</p>
+        <p>• Each wall encodes: Hanzi, Pinyin, Stroke Order, Semantic Associations</p>
+        <p>• Security through Cantorian cardinality - dead states hide information</p>
+    </div>
+
+    <script>
+        // Chinese character database (simplified for demo)
+        const chineseCharacters = [
+            { hanzi: '你', pinyin: 'nǐ', meaning: 'you', strokes: 7, radical: '亻', associations: ['person', 'greeting', 'polite'] },
+            { hanzi: '好', pinyin: 'hǎo', meaning: 'good', strokes: 6, radical: '女', associations: ['positive', 'well', 'approval'] },
+            { hanzi: '我', pinyin: 'wǒ', meaning: 'I/me', strokes: 7, radical: '戈', associations: ['self', 'identity', 'first person'] },
+            { hanzi: '是', pinyin: 'shì', meaning: 'to be', strokes: 9, radical: '日', associations: ['existence', 'affirmation', 'copula'] },
+            { hanzi: '的', pinyin: 'de', meaning: 'possessive particle', strokes: 8, radical: '白', associations: ['grammar', 'possession', 'structure'] },
+            { hanzi: '不', pinyin: 'bù', meaning: 'not', strokes: 4, radical: '一', associations: ['negation', 'denial', 'opposite'] },
+            { hanzi: '人', pinyin: 'rén', meaning: 'person', strokes: 2, radical: '人', associations: ['human', 'individual', 'society'] },
+            { hanzi: '在', pinyin: 'zài', meaning: 'at/in', strokes: 6, radical: '土', associations: ['location', 'existence', 'presence'] },
+            { hanzi: '了', pinyin: 'le', meaning: 'completed action', strokes: 2, radical: '乙', associations: ['completion', 'past', 'grammar'] },
+            { hanzi: '有', pinyin: 'yǒu', meaning: 'to have', strokes: 6, radical: '月', associations: ['possession', 'existence', 'ownership'] },
+            { hanzi: '他', pinyin: 'tā', meaning: 'he/him', strokes: 5, radical: '亻', associations: ['male', 'third person', 'other'] },
+            { hanzi: '这', pinyin: 'zhè', meaning: 'this', strokes: 10, radical: '辶', associations: ['demonstrative', 'proximity', 'indication'] },
+            { hanzi: '中', pinyin: 'zhōng', meaning: 'middle/China', strokes: 4, radical: '丨', associations: ['center', 'country', 'balance'] },
+            { hanzi: '来', pinyin: 'lái', meaning: 'to come', strokes: 7, radical: '木', associations: ['movement', 'arrival', 'direction'] },
+            { hanzi: '说', pinyin: 'shuō', meaning: 'to speak', strokes: 9, radical: '讠', associations: ['communication', 'language', 'expression'] },
+            { hanzi: '大', pinyin: 'dà', meaning: 'big', strokes: 3, radical: '大', associations: ['size', 'importance', 'magnitude'] }
+        ];
+
+        // ByteWord class with Chinese character morphological cryptography
+        class ByteWord {
+            constructor(value = 0) {
+                this._value = value & 0xFF;
+            }
+
+            // Cantorian morphological fields
+            get C() { return (this._value >> 7) & 0x01; }
+            get __C__() { return this.C === 0 ? (this._value >> 6) & 0x01 : 1; }
+            get V() { 
+                if (this.C === 1) {
+                    return (this._value >> 4) & 0x07; 
+                } else {
+                    return this.__C__ === 1 ? (this._value >> 4) & 0x03 : null;
+                }
+            }
+            get T() { return this._value & 0x0F; }
+            
+            // Cardinality states
+            get isHalted() { return this.C === 0 && this.__C__ === 0; }
+            get isCountable() { return this.C === 0 && this.__C__ === 1; }
+            get isUncountable() { return this.C === 1; }
+
+            // Morphological cryptography - decrypt character data
+            getCharacterData(runtimeKey) {
+                if (this.isHalted) {
+                    // Dead wall - needs runtime key to decrypt
+                    if (!runtimeKey || runtimeKey.isHalted) {
+                        return { encrypted: true, data: null };
+                    }
+                    // Decrypt using runtime composition
+                    const decryptedIndex = (this._value ^ runtimeKey._value) % chineseCharacters.length;
+                    return { encrypted: false, data: chineseCharacters[decryptedIndex] };
+                } else {
+                    // Living wall - directly accessible
+                    const index = this._value % chineseCharacters.length;
+                    return { encrypted: false, data: chineseCharacters[index] };
+                }
+            }
+
+            // Morphic composition with security awareness
+            compose(other) {
+                if (this.isHalted && other.isHalted) {
+                    return new ByteWord(0x00); // Double death = permanent halt
+                }
+                
+                const selfRotated = ((this._value << 3) | (this._value >> 5)) & 0xFF;
+                const result = selfRotated ^ other._value;
+                return new ByteWord(result);
+            }
+
+            toString() {
+                return `BW[${this._value.toString(16).padStart(2, '0')}]`;
+            }
+
+            get value() { return this._value; }
+            
+            getMorphology() {
+                const bits = this._value.toString(2).padStart(8, '0');
+                
+                if (this.isHalted) {
+                    return `ENCRYPTED[C0__C__0|∅]`;
+                } else if (this.C === 1) {
+                    return `LIVE[C1V${this.V}T${this.T}|ℝ]`;
+                } else {
+                    return `ACTIVE[C0__C__1V${this.V}T${this.T}|ℕ]`;
+                }
+            }
+        }
+
+        // Frame buffer generators
+        class FrameBuffer {
+            static generate32bit(gameState, frameCount) {
+                const buffer = [];
+                for (let i = 0; i < 4; i++) {
+                    const seed = new ByteWord(gameState.value + frameCount + i * 17);
+                    buffer.push(gameState.compose(seed));
+                }
+                return buffer;
+            }
+            
+            static generate64bit(gameState, frameCount) {
+                const buffer = [];
+                for (let i = 0; i < 8; i++) {
+                    const seed = new ByteWord(gameState.value + frameCount + i * 23);
+                    buffer.push(gameState.compose(seed));
+                }
+                return buffer;
+            }
+        }
+
+        // Game state
+        let player = { x: 1.5, y: 1.5, angle: 0 };
+        let maze = [];
+        let gameState = new ByteWord(0x42);
+        let fps = 0;
+        let frameCount = 0;
+        let lastTime = 0;
+        let fpsTime = 0;
+        let selectedWall = null;
+
+        // DOM elements
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fpsDisplay');
+        const frameBuffer32Display = document.getElementById('frameBuffer32');
+        const frameBuffer64Display = document.getElementById('frameBuffer64');
+        const gameStateDisplay = document.getElementById('gameStateHex');
+        const cardinalityDisplay = document.getElementById('cardinalityState');
+        const securityDisplay = document.getElementById('securityStatus');
+        const characterDisplay = document.getElementById('characterInfo');
+
+        // Initialize maze with Chinese character walls
+        function initializeMaze() {
+            const mazeSize = 16;
+            maze = [];
+            
+            for (let y = 0; y < mazeSize; y++) {
+                const row = [];
+                for (let x = 0; x < mazeSize; x++) {
+                    let value = 0;
+                    
+                    if (x === 0 || x === mazeSize - 1 || y === 0 || y === mazeSize - 1) {
+                        // Border walls - mix of living and dead
+                        value = (x + y) % 3 === 0 ? 0x00 : 0xFF; // Some encrypted walls
+                    } else if ((x % 2 === 0) && (y % 2 === 0)) {
+                        // Pillars - always living for navigation
+                        value = 0xAA;
+                    } else {
+                        // Interior walls - morphologically determined
+                        const xByte = new ByteWord(x * 16 + y * 7);
+                        const yByte = new ByteWord(y * 16 + x * 11);
+                        const composed = xByte.compose(yByte);
+                        value = composed.T > 6 ? composed.value : 0x00;
+                    }
+                    
+                    row.push(new ByteWord(value));
+                }
+                maze.push(row);
+            }
+        }
+
+        // Enhanced renderer with character display
+        function render() {
+            if (!canvas || maze.length === 0) return;
+            
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            
+            const fov = Math.PI / 3;
+            const numRays = width / 2;
+            
+            for (let i = 0; i < numRays; i++) {
+                const rayAngle = player.angle - fov / 2 + (fov * i) / numRays;
+                const dx = Math.cos(rayAngle);
+                const dy = Math.sin(rayAngle);
+                
+                let distance = 0;
+                let hit = false;
+                let hitByte = new ByteWord(0);
+                let hitX = 0, hitY = 0;
+                
+                while (distance < 20 && !hit) {
+                    distance += 0.1;
+                    const testX = Math.floor(player.x + dx * distance);
+                    const testY = Math.floor(player.y + dy * distance);
+                    
+                    if (testX >= 0 && testX < maze.length && testY >= 0 && testY < maze[0].length) {
+                        const cell = maze[testY][testX];
+                        if (cell.value > 0x05) {
+                            hit = true;
+                            hitByte = cell;
+                            hitX = testX;
+                            hitY = testY;
+                        }
+                    }
+                }
+                
+                if (hit) {
+                    const correctedDistance = distance * Math.cos(rayAngle - player.angle);
+                    const wallHeight = Math.min(height, height / correctedDistance);
+                    const wallTop = (height - wallHeight) / 2;
+                    
+                    // Color based on cryptographic state
+                    let color = '#444';
+                    if (hitByte.isHalted) {
+                        color = '#666'; // Encrypted/dead walls
+                    } else if (hitByte.isUncountable) {
+                        color = `hsl(${hitByte.V * 45}, 70%, 50%)`; // Living verb walls
+                    } else {
+                        color = `hsl(60, 50%, ${30 + hitByte.V * 15}%)`; // Living noun walls
+                    }
+                    
+                    ctx.fillStyle = color;
+                    ctx.fillRect(i * 2, wallTop, 2, wallHeight);
+                    
+                    // Character overlay for living walls
+                    if (!hitByte.isHalted && wallHeight > 30) {
+                        const charData = hitByte.getCharacterData(gameState);
+                        if (charData.data) {
+                            ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
+                            ctx.font = `${Math.min(wallHeight / 4, 20)}px serif`;
+                            ctx.textAlign = 'center';
+                            ctx.fillText(charData.data.hanzi, i * 2 + 1, wallTop + wallHeight / 2);
+                        }
+                    }
+                }
+            }
+            
+            renderHUD();
+        }
+
+        function renderHUD() {
+            ctx.fillStyle = 'rgba(0,0,0,0.8)';
+            ctx.fillRect(10, 10, 320, 120);
+            
+            ctx.fillStyle = '#0f0';
+            ctx.font = '12px monospace';
+            ctx.fillText(`Runtime Key: ${gameState.toString()}`, 20, 30);
+            ctx.fillText(`Player: (${player.x.toFixed(1)}, ${player.y.toFixed(1)})`, 20, 45);
+            ctx.fillText(`Angle: ${(player.angle * 180 / Math.PI).toFixed(1)}°`, 20, 60);
+            ctx.fillText(`Cardinality: ${gameState.getMorphology()}`, 20, 75);
+            ctx.fillText(`Frame: ${frameCount}`, 20, 90);
+            ctx.fillText(`Security: ${gameState.isHalted ? 'ENCRYPTED' : 'AUTHENTICATED'}`, 20, 105);
+        }
+
+        // Update displays
+        function updateFrameBuffers() {
+            const buffer32 = FrameBuffer.generate32bit(gameState, frameCount);
+            const buffer64 = FrameBuffer.generate64bit(gameState, frameCount);
+            
+            frameBuffer32Display.innerHTML = '32-bit Frame Buffer: ' + 
+                buffer32.map(bw => `<span class="frame-buffer">${bw.toString()}</span>`).join('');
+            
+            frameBuffer64Display.innerHTML = '64-bit Frame Buffer: ' + 
+                buffer64.map(bw => `<span class="frame-buffer">${bw.toString()}</span>`).join('');
+            
+            gameStateDisplay.textContent = gameState.toString();
+            cardinalityDisplay.textContent = gameState.getMorphology();
+            
+            // Security status
+            if (gameState.isHalted) {
+                securityDisplay.textContent = "RUNTIME ENCRYPTED - Cannot decrypt walls";
+                securityDisplay.style.color = '#f00';
+            } else {
+                securityDisplay.textContent = "RUNTIME AUTHENTICATED - Full access";
+                securityDisplay.style.color = '#0f0';
+            }
+        }
+
+        // Character inspection
+        function inspectWall(x, y) {
+            if (x >= 0 && x < maze.length && y >= 0 && y < maze[0].length) {
+                const wall = maze[y][x];
+                const charData = wall.getCharacterData(gameState);
+                
+                if (charData.encrypted) {
+                    characterDisplay.innerHTML = `
+                        <div class="cryptographic-status">ENCRYPTED WALL - Runtime key required</div>
+                        <div>ByteWord: ${wall.toString()}</div>
+                        <div>State: ${wall.getMorphology()}</div>
+                        <div>Requires living runtime for decryption</div>
+                    `;
+                } else if (charData.data) {
+                    const char = charData.data;
+                    characterDisplay.innerHTML = `
+                        <span class="hanzi">${char.hanzi}</span>
+                        <span class="pinyin">${char.pinyin}</span>
+                        <div class="meaning">${char.meaning}</div>
+                        <div>Strokes: ${char.strokes} | Radical: ${char.radical}</div>
+                        <div>Associations: ${char.associations.join(', ')}</div>
+                        <div>ByteWord: ${wall.toString()} | ${wall.getMorphology()}</div>
+                    `;
+                } else {
+                    characterDisplay.innerHTML = `
+                        <div>Empty space</div>
+                        <div>ByteWord: ${wall.toString()}</div>
+                    `;
+                }
+            }
+        }
+
+        // Game loop
+        function gameLoop(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            frameCount++;
+            fpsTime += deltaTime;
+            if (fpsTime >= 1000) {
+                fps = Math.round(frameCount * 1000 / fpsTime);
+                fpsDisplay.textContent = `FPS: ${fps}`;
+                frameCount = 0;
+                fpsTime = 0;
+            }
+            
+            // Evolve runtime key through morphological composition
+            const timeByte = new ByteWord(Math.floor(currentTime / 200) & 0xFF);
+            gameState = gameState.compose(timeByte);
+            
+            updateFrameBuffers();
+            render();
+            
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Input handling
+        function handleKeyDown(e) {
+            const moveSpeed = 0.1;
+            const turnSpeed = 0.1;
+            
+            let newPlayer = { ...player };
+            
+            switch (e.key.toLowerCase()) {
+                case 'arrowup':
+                case 'w':
+                    newPlayer.x += Math.cos(player.angle) * moveSpeed;
+                    newPlayer.y += Math.sin(player.angle) * moveSpeed;
+                    break;
+                case 'arrowdown':
+                case 's':
+                    newPlayer.x -= Math.cos(player.angle) * moveSpeed;
+                    newPlayer.y -= Math.sin(player.angle) * moveSpeed;
+                    break;
+                case 'arrowleft':
+                case 'a':
+                    newPlayer.angle -= turnSpeed;
+                    break;
+                case 'arrowright':
+                case 'd':
+                    newPlayer.angle += turnSpeed;
+                    break;
+                case ' ':
+                    // Inspect wall in front
+                    const frontX = Math.floor(player.x + Math.cos(player.angle) * 1.5);
+                    const frontY = Math.floor(player.y + Math.sin(player.angle) * 1.5);
+                    inspectWall(frontX, frontY);
+                    return;
+            }
+            
+            // Collision detection
+            const mapX = Math.floor(newPlayer.x);
+            const mapY = Math.floor(newPlayer.y);
+            
+            if (mapX >= 0 && mapX < maze.length && mapY >= 0 && mapY < maze[0].length) {
+                if (maze[mapY][mapX].value <= 0x05) {
+                    player = newPlayer;
+                    
+                    // Movement affects runtime key
+                    const moveByte = new ByteWord(
+                        (Math.floor(newPlayer.x * 16) ^ Math.floor(newPlayer.y * 16)) & 0xFF
+                    );
+                    gameState = gameState.compose(moveByte);
+                }
+            }
+        }
+
+        // Click to inspect
+        function handleCanvasClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Cast ray to find clicked wall
+            const centerX = canvas.width / 2;
+            const rayAngle = player.angle + (x - centerX) / centerX * (Math.PI / 6);
+            
+            const dx = Math.cos(rayAngle);
+            const dy = Math.sin(rayAngle);
+            
+            let distance = 0;
+            while (distance < 20) {
+                distance += 0.1;
+                const testX = Math.floor(player.x + dx * distance);
+                const testY = Math.floor(player.y + dy * distance);
+                
+                if (testX >= 0 && testX < maze.length && testY >= 0 && testY < maze[0].length) {
+                    if (maze[testY][testX].value > 0x05) {
+                        inspectWall(testX, testY);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Initialize
+        function init() {
+            initializeMaze();
+            
+            document.addEventListener('keydown', handleKeyDown);
+            canvas.addEventListener('click', handleCanvasClick);
+            
+            requestAnimationFrame(gameLoop);
+            
+            console.log('ByteWord Chinese Hyperpalace initialized');
+            console.log('Morphological Cryptography: ACTIVE');
+            console.log('Press SPACE to inspect walls, click to investigate');
+        }
+
+        init();
+    </script>
+</body>
+</html>

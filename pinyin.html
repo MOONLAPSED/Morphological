@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>ByteWord Palace</title>
+  <style>
+    .wall { display: grid; grid-template-columns: repeat(10, 1fr); gap: 8px; }
+    .tile { 
+      background: #001100; color: #0f0; 
+      border: 1px solid #004400; padding: 10px; 
+      font-family: monospace; text-align: center;
+      cursor: pointer;
+    }
+    .tile .glyph { font-size: 2em; display: block; }
+    .tile .pinyin { font-size: 0.8em; opacity: 0.7; }
+  </style>
+</head>
+<body>
+  <div class="wall">
+    <div class="tile"
+         data-bytestate="0x3C" 
+         data-char="学" 
+         data-pinyin="xué" 
+         data-strokes="横,竖,撇,捺" 
+         data-radical="子"
+         data-meanings="to learn;study">
+      <span class="glyph">学</span>
+      <span class="pinyin">xué</span>
+    </div>
+    <!-- more tiles… -->
+  </div>
+
+  <script>
+    // On load, hydrate all tiles
+    document.querySelectorAll('.tile').forEach(tile => {
+      const state = parseInt(tile.dataset.bytestate, 16);
+      // MSB=0 means low-energy: do nothing or reveal hidden info?
+      if ((state >> 7) & 1 === 0) {
+        // Example: decrypt a secret note from the lower 7 bits
+        const note = state & 0x7F;
+        // attach a tooltip
+        tile.title = 'Secret note ID: ' + note;
+      } else {
+        // high-energy: maybe allow quizzes or dynamic stroke animations
+        tile.addEventListener('click', () => {
+          alert(`Meanings: ${tile.dataset.meanings}`);
+        });
+      }
+    });
+  </script>
+</body>
+</html>
