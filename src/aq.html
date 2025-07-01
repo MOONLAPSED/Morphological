@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Algernon's Quest - Morphic 3D Maze</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        
+        .game-container {
+            display: flex;
+            gap: 20px;
+            height: 100vh;
+        }
+        
+        .viewport {
+            width: 400px;
+            height: 300px;
+            background: #000;
+            border: 2px solid #0f0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .debug-panel {
+            flex: 1;
+            border: 2px solid #0f0;
+            padding: 10px;
+            font-size: 12px;
+            overflow-y: auto;
+        }
+        
+        .maze-cell {
+            position: absolute;
+            background: #333;
+            border: 1px solid #666;
+        }
+        
+        .wall {
+            background: #0f0;
+        }
+        
+        .player {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: #ff0;
+            border-radius: 50%;
+            z-index: 10;
+        }
+        
+        .byteword {
+            display: inline-block;
+            padding: 2px 4px;
+            margin: 1px;
+            background: #001100;
+            border: 1px solid #004400;
+            font-size: 10px;
+        }
+        
+        .active {
+            background: #004400;
+            border-color: #0f0;
+        }
+        
+        .controls {
+            margin-top: 10px;
+        }
+        
+        .controls button {
+            background: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 5px 10px;
+            margin: 2px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        
+        .controls button:hover {
+            background: #004400;
+        }
+        
+        .fps-counter {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 5px;
+            border: 1px solid #0f0;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div>
+            <div class="viewport" id="viewport">
+                <div class="fps-counter" id="fps">FPS: 0</div>
+            </div>
+            <div class="controls">
+                <button onclick="move('north')">↑ NORTH</button><br>
+                <button onclick="move('west')">← WEST</button>
+                <button onclick="move('east')">→ EAST</button><br>
+                <button onclick="move('south')">↓ SOUTH</button>
+            </div>
+        </div>
+        
+        <div class="debug-panel" id="debug">
+            <h3>ALGERNON'S QUEST - ByteWord Debug Console</h3>
+            <div id="byteword-state"></div>
+            <div id="composition-log"></div>
+        </div>
+    </div>
+
+    <script>
+        // ByteWord Implementation
+        class ByteWord {
+            constructor(value = 0) {
+                this._value = value & 0xFF;
+            }
+            
+            get C() { return (this._value >> 7) & 0x01; }
+            get V() { return this.C === 1 ? (this._value >> 4) & 0x07 : null; }
+            get VV() { return this.C === 0 ? (this._value >> 4) & 0x03 : null; }
+            get _C() { return this.C === 0 ? (this._value >> 6) & 0x01 : null; }
+            get T() { return this._value & 0x0F; }
+            
+            compose(other) {
+                // Simple morphic composition rule for maze game
+                const selfRotated = ((this._value << 3) | (this._value >> 5)) & 0xFF;
+                const result = selfRotated ^ other._value;
+                return new ByteWord(result);
+            }
+            
+            toString() {
+                const hex = this._value.toString(16).padStart(2, '0').toUpperCase();
+                const bin = this._value.toString(2).padStart(8, '0');
+                return `0x${hex} (${bin})`;
+            }
+            
+            toHTML() {
+                const active = this.C === 1 ? 'active' : '';
+                return `<span class="byteword ${active}">${this.toString()}</span>`;
+            }
+        }
+        
+        // Game State
+        const MAZE_SIZE = 8;
+        let player = {
+            x: 1,
+            y: 1,
+            orientation: new ByteWord(0b11000001) // Facing North
+        };
+        
+        // Maze Generation as ByteWords
+        const WALL = new ByteWord(0b10010001);
+        const OPEN = new ByteWord(0b00000000);
+        const maze = [];
+        
+        // Generate simple maze pattern
+        for (let y = 0; y < MAZE_SIZE; y++) {
+            maze[y] = [];
+            for (let x = 0; x < MAZE_SIZE; x++) {
+                if (x === 0 || y === 0 || x === MAZE_SIZE-1 || y === MAZE_SIZE-1) {
+                    maze[y][x] = WALL; // Outer walls
+                } else if (x % 2 === 0 && y % 2 === 0) {
+                    maze[y][x] = WALL; // Inner walls
+                } else {
+                    maze[y][x] = OPEN; // Open spaces
+                }
+            }
+        }
+        
+        // Movement ByteWords
+        const MOVE_NORTH = new ByteWord(0b10100001);
+        const MOVE_SOUTH = new ByteWord(0b10100010);
+        const MOVE_EAST  = new ByteWord(0b10100100);
+        const MOVE_WEST  = new ByteWord(0b10101000);
+        
+        // Rendering
+        function render() {
+            const viewport = document.getElementById('viewport');
+            viewport.innerHTML = '<div class="fps-counter" id="fps">FPS: ' + Math.round(fps) + '</div>';
+            
+            const cellSize = 40;
+            
+            // Render maze
+            for (let y = 0; y < MAZE_SIZE; y++) {
+                for (let x = 0; x < MAZE_SIZE; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'maze-cell';
+                    if (maze[y][x].C === 1) cell.className += ' wall';
+                    
+                    cell.style.left = (x * cellSize) + 'px';
+                    cell.style.top = (y * cellSize) + 'px';
+                    cell.style.width = cellSize + 'px';
+                    cell.style.height = cellSize + 'px';
+                    
+                    viewport.appendChild(cell);
+                }
+            }
+            
+            // Render player
+            const playerElement = document.createElement('div');
+            playerElement.className = 'player';
+            playerElement.style.left = (player.x * cellSize + cellSize/2 - 4) + 'px';
+            playerElement.style.top = (player.y * cellSize + cellSize/2 - 4) + 'px';
+            viewport.appendChild(playerElement);
+            
+            updateDebugPanel();
+        }
+        
+        function updateDebugPanel() {
+            const stateDiv = document.getElementById('byteword-state');
+            stateDiv.innerHTML = `
+                <h4>Player State:</h4>
+                Position: (${player.x}, ${player.y})<br>
+                Orientation: ${player.orientation.toHTML()}<br>
+                Current Cell: ${maze[player.y][player.x].toHTML()}<br>
+                
+                <h4>Maze ByteWords (Sample):</h4>
+                Wall: ${WALL.toHTML()}<br>
+                Open: ${OPEN.toHTML()}<br>
+                
+                <h4>Movement Operators:</h4>
+                North: ${MOVE_NORTH.toHTML()}<br>
+                South: ${MOVE_SOUTH.toHTML()}<br>
+                East: ${MOVE_EAST.toHTML()}<br>
+                West: ${MOVE_WEST.toHTML()}<br>
+            `;
+        }
+        
+        // Movement Logic
+        function move(direction) {
+            let dx = 0, dy = 0;
+            let moveBW;
+            
+            switch(direction) {
+                case 'north': dy = -1; moveBW = MOVE_NORTH; break;
+                case 'south': dy = 1; moveBW = MOVE_SOUTH; break;
+                case 'east': dx = 1; moveBW = MOVE_EAST; break;
+                case 'west': dx = -1; moveBW = MOVE_WEST; break;
+            }
+            
+            const newX = player.x + dx;
+            const newY = player.y + dy;
+            
+            // Check bounds and collision using ByteWord composition
+            if (newX >= 0 && newX < MAZE_SIZE && newY >= 0 && newY < MAZE_SIZE) {
+                const targetCell = maze[newY][newX];
+                const collision = moveBW.compose(targetCell);
+                
+                // Log the morphic composition
+                const log = document.getElementById('composition-log');
+                log.innerHTML = `<h4>Last Move Composition:</h4>
+                    Move: ${moveBW.toHTML()}<br>
+                    Cell: ${targetCell.toHTML()}<br>
+                    Result: ${collision.toHTML()}<br>
+                    Collision: ${collision.C === 1 ? 'YES' : 'NO'}<br><br>` + log.innerHTML;
+                
+                if (collision.C === 0) { // No collision
+                    player.x = newX;
+                    player.y = newY;
+                    player.orientation = player.orientation.compose(moveBW);
+                }
+            }
+            
+            render();
+        }
+        
+        // FPS Counter
+        let fps = 0;
+        let frameCount = 0;
+        let lastTime = performance.now();
+        
+        function updateFPS() {
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+            }
+        }
+        
+        // Game Loop
+        function gameLoop() {
+            updateFPS();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Initialize
+        render();
+        gameLoop();
+        
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowUp': case 'w': case 'W': move('north'); break;
+                case 'ArrowDown': case 's': case 'S': move('south'); break;
+                case 'ArrowLeft': case 'a': case 'A': move('west'); break;
+                case 'ArrowRight': case 'd': case 'D': move('east'); break;
+            }
+        });
+    </script>
+</body>
+</html>
