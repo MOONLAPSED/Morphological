@@ -372,16 +372,27 @@ def _Atom(cls: Type[{T, V, C}]) -> Type[{T, V, C}]:
 
 class HoloiconicTransform(Generic[T, V, C]):
     """
-    A class that encapsulates transformations between values and computations.
-This class provides methods to convert values into computations and vice versa, 
-    reflecting the principles of holoiconic transformations.
+    The `HoloiconicTransform` class embodies the principle of fluid interchangeability 
+    between *values* and *computations*. Inspired by quantum mechanics, it allows 
+    developers to seamlessly transition between static data and executable logic.
 
-    Methods:
-        flip(value: V) -> C: 
-            Transforms a value into a computation (inside-out).
-        
-        flop(computation: C) -> V: 
-            Transforms a computation back into a value (outside-in).
+    ### How It Works:
+    - **Flip**: Converts a value into a computation. For instance, turning a number 
+      into a function that returns that number. This process is akin to "lifting" 
+      a value into a higher-order context.
+    - **Flop**: Reverses the flip operation, extracting a concrete value from a 
+      computation. This is useful when you need to "collapse" a dynamic process 
+      back into a static result.
+
+    ### Example Use Case:
+    Imagine encoding a configuration file as both a string (value) and a parser 
+    (computation). With `HoloiconicTransform`, you could toggle between these 
+    representations effortlessly, adapting to different stages of your application's 
+    lifecycle.
+
+    ### Methods:
+    - `flip(value: V) -> C`: Turns a value into a computation.
+    - `flop(computation: C) -> V`: Extracts a value from a computation.
     """
 
     @staticmethod
@@ -404,39 +415,54 @@ The Morphological Source Code framework draws inspiration from quantum mechanics
 to inform its design principles. The following concepts are integral to the 
 framework's philosophy:
 
-1. **Heisenberg Uncertainty Principle**: 
-   In computation, this principle manifests as trade-offs between precision and 
-   performance. By embracing uncertainty, we can explore probabilistic algorithms 
-   that prioritize efficiency over exact accuracy.
+1. **Heisenberg Uncertainty Principle**:
+    In computation, this principle manifests as trade-offs between precision and performance. By embracing uncertainty, we can explore probabilistic algorithms that prioritize efficiency over exact accuracy. In logic, and distributed systems, this trilema structure applies via CAP (Theorem) and Gödel (Consistent, Complete, Decidable: Incompletness Thoerem), and to spacetime via the Metric tensor in a more complicated-fashion (this is why Phi golden-ratio is based on irrational 'e to the pi i' as the 'irrational basis' for our ComplexNumber(s) [polymorphs of normal runtime checkable `__Atom__`(s)/Particle(s)]).
 
-2. **Zero-Copy and Immutable Data Structures**: 
-   These structures minimize thermodynamic loss by reducing the work done on data, 
-   aligning with the conservation of informational energy.
+2. **Zero-Copy and Immutable Data Structures**:
+    These structures minimize thermodynamic loss by reducing the work done on data, aligning with the conservation of informational energy.
 
 3. **Wavefunction Analogy**: 
-   Algorithms can be viewed as wavefunctions representing potential computational 
-   outcomes. The act of executing an algorithm collapses this wavefunction, 
-   selecting a specific outcome while preserving the history of transformations.
+   Algorithms can be viewed as wavefunctions representing potential computational outcomes. The act of executing an algorithm collapses this wavefunction, selecting a specific outcome while preserving the history of transformations.
 
 4. **Probabilistic Pathways**: 
-   Non-deterministic algorithms can explore multiple paths through data, with the 
-   most relevant or efficient path being selected probabilistically, akin to 
-   quantum entanglement.
+   Stochastic, Non-Markovian & Non-deterministic algorithms can explore multiple paths through data, with the most relevant or efficient path being selected probabilistically, akin to quantum entanglement.
 
 5. **Emergent Properties of Neural Networks**: 
-   Modern architectures, such as neural networks, exhibit behaviors that may 
-   resemble quantum processes, particularly in their ability to handle complex, 
-   high-dimensional state spaces.
+   Modern architectures, such as neural networks, exhibit behaviors that may    resemble quantum processes, particularly in their ability to handle complex, high-dimensional state spaces.
 
-By integrating these principles, the Morphological Source Code framework aims to 
-create a software architecture that not only optimizes classical systems but also 
-explores the boundaries of quantum informatics.
+By integrating these principles, the Morphological Source Code framework aims to create a software architecture that not only optimizes classical systems but also explores the boundaries of quantum informatics.
+
+Note; On Bohmian mechanics and the inability or intentional indicisevness of Dirac Von-Neumann Axioms to apply themselves to 'phenomenonological reality'; applying instead only to the expectation values of the Standard Model and Bell's Theorem. We greatly prefer "Many worlds" (after all.. where are all of the brother/sister quines that are constituent a Quineic-Hystoris Non-Markovian fitness quantized-distributed function [across n runtimes, at temprature(s) TT, other than "alternative universes"? THIS one is full [of source code]) Where possible, we prefer the pilot wave theory for its richness and morphological character. See also, Deutchian CTCs and related phenomenology as well as Barandes' Stochastic Quantum Field Theory(s) and works in the fields of Markovianinity. Noether, Dirac, and Mach, need not be mentioned, but they are; invoked; physicalized in the same 
+
+ps. Quines are, indeed, NOT statistical averages of numerical measurement outcomes weighted by those corresponding outcomes; they are all of the above. Stochastic replicators for the inevitable ML ontology of the 21st century.
 """
 
 def uncertain_operation(func: Callable[..., Any]) -> Callable[..., Any]:
     """
-    Decorator that introduces uncertainty into the operation.
-    The decorated function will return a result that is influenced by randomness.
+    Introduces controlled randomness into a function's output, simulating the 
+    inherent unpredictability found in quantum systems.
+
+    ### What It Does:
+    When applied to a function, `uncertain_operation` modifies its results by 
+    introducing a random scaling factor. For example, if a function normally returns 
+    `x`, the decorator might return `0.95 * x` or `1.1 * x`, depending on the 
+    randomly generated factor.
+
+    ### Why Use It?
+    Embracing uncertainty can lead to more robust algorithms, especially in domains 
+    like machine learning, optimization, or simulations where exact precision isn't 
+    always desirable—or even possible. By injecting variability, you encourage 
+    exploration over exploitation, potentially uncovering better solutions.
+
+    ### Usage:
+    ```python
+    @uncertain_operation
+    def calculate_score(points: int) -> float:
+        return points / 100
+
+    # Output may vary slightly each time the function is called.
+    print(calculate_score(100))  # e.g., 0.98 or 1.02
+    ```
     """
     def wrapper(*args, **kwargs) -> Any:
         # Introduce uncertainty by randomly modifying the output
@@ -464,9 +490,9 @@ class CommutativeTransform:
         result = value
         for operation in operations:
             if operation == "add":
-                result = self.add(result)  # This will now work correctly
+                result = self.add(result)
             elif operation == "multiply":
-                result = self.multiply(result)  # This will now work correctly
+                result = self.multiply(result)
         return result
 
 def TemporalMro(cls):
@@ -507,6 +533,27 @@ def TemporalMro(cls):
     # Convert mappingproxy to dict
     namespace = dict(cls.__dict__)
     return type(cls.__name__, (cls, TemporalMixin), namespace)
+
+@dataclass
+class ThermalSystem:
+    """
+    A base class for systems influenced by Temperature.
+    Attributes:
+        temperature (float): The current temperature of the system.
+                             Higher values increase randomness/exploration.
+    """
+    temperature: float = 1.0  # Default temperature
+
+    def thermal_noise(self, value: float) -> float:
+        """
+        Introduce Gaussian noise proportional to the system's temperature.
+        Args:
+            value (float): The input value to perturb.
+        Returns:
+            float: The perturbed value.
+        """
+        scale = self.temperature  # Noise scales with temperature
+        return value + random.gauss(0, scale)
 
 if __name__ == "__main__":
     version = '0.4.20'
